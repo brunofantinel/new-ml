@@ -1,0 +1,7 @@
+node_modules/
+dist/
+
+# NUNCA versione segredos nem tokens
+.env
+.tokens.json
+.user-token.json

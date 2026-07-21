@@ -1,0 +1,16 @@
+# === Segredos e tokens — NUNCA versionar ===
+**/.env
+**/.env.local
+**/.tokens.json
+**/.user-token.json
+
+# === Dependências e build ===
+**/node_modules/
+**/dist/
+
+# === Config local do Claude Code ===
+.claude/
+
+# === Sistema ===
+Thumbs.db
+.DS_Store
