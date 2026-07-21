@@ -77,3 +77,41 @@ button.ghost {
 .cat-opt:hover { border-color: var(--accent-soft); }
 footer { color: var(--soft); font-size: 11.5px; border-top: 1px solid var(--line); padding-top: 16px; margin-top: 26px; }
 .spin { color: var(--soft); font-size: 13px; }
+
+/* ===== Navegação (abas) ===== */
+.tabs { display: flex; gap: 6px; margin-bottom: 18px; border-bottom: 1px solid var(--line); }
+.tab { background: none; border: 0; border-bottom: 2px solid transparent; padding: 10px 4px; margin-right: 14px; font-size: 14.5px; font-weight: 600; color: var(--soft); cursor: pointer; }
+.tab.on { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* ===== Vantagens: tiles de resumo ===== */
+.tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 0 0 16px; }
+@media (min-width: 620px) { .tiles { grid-template-columns: repeat(4, 1fr); } }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; box-shadow: var(--shadow); }
+.tile b { display: block; font-family: var(--mono); font-size: 22px; font-weight: 800; line-height: 1.1; }
+.tile span { font-size: 11.5px; color: var(--soft); }
+.tile.good b { color: var(--good); } .tile.warn b { color: var(--warn); } .tile.bad b { color: var(--bad); }
+
+/* ===== Vantagens: filtros ===== */
+.filters { display: grid; grid-template-columns: 1fr; gap: 9px; margin-bottom: 12px; }
+@media (min-width: 620px) { .filters { grid-template-columns: 2fr 1fr 1fr 1fr; align-items: center; } }
+
+/* ===== Vantagens: lista de cards ===== */
+.vlist { display: grid; grid-template-columns: 1fr; gap: 12px; }
+@media (min-width: 760px) { .vlist { grid-template-columns: 1fr 1fr; } }
+.vcard { display: flex; flex-direction: column; gap: 8px; }
+.vhead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.vgrp { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--soft); background: var(--paper); border: 1px solid var(--line); border-radius: 20px; padding: 2px 8px; font-weight: 600; }
+.pill.warn { background: var(--warn-bg); color: var(--warn); border-color: var(--warn-line); }
+.pill.bad { background: var(--bad-bg); color: var(--bad); border-color: var(--bad-line); }
+.vname { font-weight: 700; font-size: 14.5px; line-height: 1.25; }
+.vsub { font-size: 12px; color: var(--soft); margin-top: -2px; }
+.vrows { margin-top: 2px; }
+.vrows .brow { padding: 7px 0; font-size: 13px; }
+.v.pos { color: var(--good); } .v.neg { color: var(--bad); }
+.vlive { background: var(--good-bg); border: 1px solid var(--good-line); color: var(--good); border-radius: 9px; padding: 9px 11px; font-size: 12.5px; }
+.vlive.neg { background: var(--bad-bg); border-color: var(--bad-line); color: var(--bad); }
+.vlive.err { background: var(--bad-bg); border-color: var(--bad-line); color: var(--bad); }
+.vfoot { display: flex; gap: 8px; align-items: center; margin-top: 2px; }
+.vfoot .ghost { flex: 1; text-align: center; }
+.ghost.link { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+.vnote { font-style: italic; }

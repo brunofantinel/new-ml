@@ -139,6 +139,29 @@ export async function predictCategory(q) {
   }))
 }
 
+// Preço atual do concorrente para um produto de catálogo já conhecido.
+// Usa o CATALOG_ID vindo da análise e lê /products/{id}/items (a lista real de
+// vendedores), pegando o MENOR preço ativo — igual ao que a análise fez.
+export async function getCatalogLive(catalogId) {
+  const r = await mlGet(`/products/${catalogId}/items`)
+  const results = Array.isArray(r?.results) ? r.results : []
+  let best = null
+  for (const it of results) {
+    if (it?.price == null) continue
+    if (!best || it.price < best.price) best = it
+  }
+  return {
+    catalog_id: catalogId,
+    price: best?.price ?? null,
+    item_id: best?.item_id ?? null,
+    category_id: best?.category_id ?? null,
+    logistic_type: best?.shipping?.logistic_type ?? null,
+    free_shipping: best?.shipping?.free_shipping ?? null,
+    n_vend: results.length,
+    status: results.length ? 'com_vendedor' : 'sem_vendedor',
+  }
+}
+
 export async function getFees(q) {
   const price = Number(q.price)
   const listingType = q.listing_type || 'gold_special'

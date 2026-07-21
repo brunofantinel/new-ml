@@ -16,7 +16,16 @@ const LOGISTIC_TYPES = [
   { id: 'self_service', label: 'Flex' },
 ]
 
+const pct = (v) => (v == null ? '—' : (v < 0 ? '-' : '') + Math.abs(v * 100).toFixed(1) + '%')
+
+const TIER_INFO = {
+  competir: { label: 'Pode competir', cls: 'good' },
+  conferir: { label: 'Conferir antes', cls: 'warn' },
+  apertado: { label: 'Apertado', cls: 'bad' },
+}
+
 export default function App() {
+  const [view, setView] = useState('calc')
   const [status, setStatus] = useState({ loading: true, ready: false })
 
   useEffect(() => {
@@ -28,40 +37,194 @@ export default function App() {
 
   return (
     <div className="wrap">
-      <div className="eyebrow">Taxas reais · API oficial do Mercado Livre</div>
-      <h1>Quanto sobra pra você, de verdade?</h1>
-      <p className="sub">
-        Puxa a comissão e o custo fixo direto da API do Mercado Livre — números reais, já com a regra nova de
-        custos de março/2026. O frete é uma estimativa (o frete real exige login do vendedor).
-      </p>
+      <nav className="tabs">
+        <button className={view === 'calc' ? 'tab on' : 'tab'} onClick={() => setView('calc')}>Calculadora</button>
+        <button className={view === 'vantagens' ? 'tab on' : 'tab'} onClick={() => setView('vantagens')}>Vantagens no ML</button>
+      </nav>
 
-      {status.loading ? (
-        <p className="spin">Iniciando…</p>
-      ) : status.ready ? (
-        <>
-          <div className="callout" style={{ marginTop: 0 }}>
-            {status.seller_connected ? (
-              <><b>Vendedor conectado</b> ✓ — o preço de concorrente (buy box) fica disponível.</>
-            ) : (
-              <>
-                <b>Preço de concorrente:</b> conecte sua conta de vendedor para tentar liberar o buy box.{' '}
-                <a href="/api/auth/login">Conectar vendedor</a>
-              </>
-            )}
-          </div>
-          <Calculator />
-        </>
+      {view === 'vantagens' ? (
+        <Vantagens />
       ) : (
-        <div className="card connect-box">
-          <div className="big-ic">⚙️</div>
-          <h2 style={{ justifyContent: 'center' }}>Falta configurar as credenciais</h2>
-          <p className="sub" style={{ margin: '0 auto' }}>
-            Preencha <code>ML_CLIENT_ID</code> e <code>ML_CLIENT_SECRET</code> no arquivo <code>.env</code> e
-            reinicie o servidor (<code>npm run dev</code>).
+        <>
+          <div className="eyebrow">Taxas reais · API oficial do Mercado Livre</div>
+          <h1>Quanto sobra pra você, de verdade?</h1>
+          <p className="sub">
+            Puxa a comissão e o custo fixo direto da API do Mercado Livre — números reais, já com a regra nova de
+            custos de março/2026. O frete é uma estimativa (o frete real exige login do vendedor).
           </p>
-        </div>
+
+          {status.loading ? (
+            <p className="spin">Iniciando…</p>
+          ) : status.ready ? (
+            <>
+              <div className="callout" style={{ marginTop: 0 }}>
+                {status.seller_connected ? (
+                  <><b>Vendedor conectado</b> ✓ — o preço de concorrente (buy box) fica disponível.</>
+                ) : (
+                  <>
+                    <b>Preço de concorrente:</b> conecte sua conta de vendedor para tentar liberar o buy box.{' '}
+                    <a href="/api/auth/login">Conectar vendedor</a>
+                  </>
+                )}
+              </div>
+              <Calculator />
+            </>
+          ) : (
+            <div className="card connect-box">
+              <div className="big-ic">⚙️</div>
+              <h2 style={{ justifyContent: 'center' }}>Falta configurar as credenciais</h2>
+              <p className="sub" style={{ margin: '0 auto' }}>
+                Preencha <code>ML_CLIENT_ID</code> e <code>ML_CLIENT_SECRET</code> no arquivo <code>.env</code> e
+                reinicie o servidor (<code>npm run dev</code>).
+              </p>
+            </div>
+          )}
+        </>
       )}
     </div>
+  )
+}
+
+function Vantagens() {
+  const [db, setDb] = useState(null)
+  const [err, setErr] = useState(null)
+  const [q, setQ] = useState('')
+  const [tier, setTier] = useState('todos')
+  const [grupo, setGrupo] = useState('todos')
+  const [sort, setSort] = useState('margem_rs')
+  const [limit, setLimit] = useState(50)
+  const [live, setLive] = useState({}) // cod -> { loading, data, err }
+
+  useEffect(() => {
+    fetch('/vantagens.json')
+      .then((r) => r.json())
+      .then(setDb)
+      .catch(() => setErr('Não consegui carregar os dados de vantagem (vantagens.json).'))
+  }, [])
+
+  if (err) return <div className="callout bad"><b>Erro:</b> {err}</div>
+  if (!db) return <p className="spin">Carregando análise de vantagem…</p>
+
+  const grupos = [...new Set(db.itens.map((i) => i.grupo).filter(Boolean))].sort()
+
+  let itens = db.itens
+  if (tier !== 'todos') itens = itens.filter((i) => i.tier === tier)
+  if (grupo !== 'todos') itens = itens.filter((i) => i.grupo === grupo)
+  if (q.trim()) {
+    const t = q.trim().toLowerCase()
+    itens = itens.filter((i) => `${i.produto} ${i.marca} ${i.produto_ml} ${i.cod}`.toLowerCase().includes(t))
+  }
+  itens = [...itens].sort((a, b) => (b[sort] ?? -1e12) - (a[sort] ?? -1e12))
+  const shown = itens.slice(0, limit)
+
+  async function atualizar(item) {
+    setLive((s) => ({ ...s, [item.cod]: { loading: true } }))
+    try {
+      const d = await fetch(`/api/vantagem/live?catalog_id=${encodeURIComponent(item.catalog_id)}&custo=${item.custo}&frete=${item.frete ?? 0}`).then((r) => r.json())
+      if (d.error) throw new Error(d.error)
+      setLive((s) => ({ ...s, [item.cod]: { loading: false, data: d } }))
+    } catch (e) {
+      setLive((s) => ({ ...s, [item.cod]: { loading: false, err: e.message } }))
+    }
+  }
+
+  return (
+    <>
+      <div className="eyebrow">Análise · seu custo × concorrente × taxas reais</div>
+      <h1>Onde você tem vantagem no Mercado Livre</h1>
+      <p className="sub">
+        Pesquisa de {db.data_pesquisa}. Comparei seu custo com o menor preço do concorrente no catálogo, já
+        descontando <b>todas</b> as taxas do ML. Clique em “Atualizar ao vivo” para conferir o preço do concorrente agora.
+      </p>
+
+      <div className="tiles">
+        <div className="tile good"><b>{db.contagem.competir}</b><span>podem competir</span></div>
+        <div className="tile warn"><b>{db.contagem.conferir}</b><span>conferir antes</span></div>
+        <div className="tile bad"><b>{db.contagem.apertado}</b><span>apertado / não fecha</span></div>
+        <div className="tile"><b>{money(db.soma_margem_competir_rs)}</b><span>margem somada (podem competir)</span></div>
+      </div>
+
+      <div className="filters card">
+        <input placeholder="Buscar produto, marca ou código…" value={q} onChange={(e) => { setQ(e.target.value); setLimit(50) }} />
+        <select value={tier} onChange={(e) => { setTier(e.target.value); setLimit(50) }}>
+          <option value="todos">Todos os níveis</option>
+          <option value="competir">Podem competir</option>
+          <option value="conferir">Conferir antes</option>
+          <option value="apertado">Apertado / não fecha</option>
+        </select>
+        <select value={grupo} onChange={(e) => { setGrupo(e.target.value); setLimit(50) }}>
+          <option value="todos">Todos os departamentos</option>
+          {grupos.map((g) => <option key={g} value={g}>{g}</option>)}
+        </select>
+        <select value={sort} onChange={(e) => setSort(e.target.value)}>
+          <option value="margem_rs">Ordenar: maior margem R$</option>
+          <option value="margem_pct">Ordenar: maior margem %</option>
+          <option value="score">Ordenar: melhor score</option>
+          <option value="preco_conc">Ordenar: maior preço concorrente</option>
+        </select>
+      </div>
+
+      <p className="hint">{itens.length} produtos no filtro · mostrando {shown.length}</p>
+
+      <div className="vlist">
+        {shown.map((item) => {
+          const lv = live[item.cod]
+          const ti = TIER_INFO[item.tier] || { label: item.tier, cls: '' }
+          return (
+            <div className="vcard card" key={item.cod}>
+              <div className="vhead">
+                <span className={'pill ' + ti.cls}>{ti.label}</span>
+                <span className="vgrp">{item.grupo}</span>
+                {item.n_vend != null && <span className="vgrp">{item.n_vend} vendedor{item.n_vend === 1 ? '' : 'es'}</span>}
+                {item.chance && <span className="vgrp">chance {item.chance.toLowerCase()}</span>}
+              </div>
+              <div className="vname">{item.produto}</div>
+              <div className="vsub">{item.marca}{item.produto_ml ? ` · casou com: ${item.produto_ml}` : ''}</div>
+
+              <div className="vrows">
+                <div className="brow"><span className="k">Seu custo</span><span className="v">{money(item.custo)}</span></div>
+                <div className="brow"><span className="k">Concorrente + barato</span><span className="v">{money(item.preco_conc)}</span></div>
+                <div className="brow"><span className="k">− Taxas do ML</span><span className="v">− {money(item.custo_ml)}</span></div>
+                <div className="brow total">
+                  <span className="k">Margem se igualar</span>
+                  <span className={'v ' + (item.margem_rs >= 0 ? 'pos' : 'neg')}>{money(item.margem_rs)} · {pct(item.margem_pct)}</span>
+                </div>
+              </div>
+
+              {lv?.data && (
+                <div className={'vlive' + (lv.data.margem_rs != null && lv.data.margem_rs < 0 ? ' neg' : '')}>
+                  {lv.data.price_now == null ? (
+                    <>⚠️ <b>Agora:</b> sem vendedor ativo no catálogo neste momento.</>
+                  ) : (
+                    <><b>Agora:</b> concorrente {money(lv.data.price_now)} → margem {money(lv.data.margem_rs)} · {pct(lv.data.margem_pct)}</>
+                  )}
+                </div>
+              )}
+              {lv?.err && <div className="vlive err">Falha ao atualizar: {lv.err}</div>}
+
+              <div className="vfoot">
+                <button className="ghost" disabled={lv?.loading || !item.catalog_id} onClick={() => atualizar(item)}>
+                  {lv?.loading ? 'Consultando o ML…' : 'Atualizar ao vivo'}
+                </button>
+                {item.url_cat && <a className="ghost link" href={item.url_cat} target="_blank" rel="noreferrer">Ver no ML ▸</a>}
+              </div>
+              {item.nota && <div className="hint vnote">{item.nota}</div>}
+            </div>
+          )
+        })}
+      </div>
+
+      {shown.length < itens.length && (
+        <button className="primary" style={{ marginTop: 16 }} onClick={() => setLimit((l) => l + 50)}>
+          Mostrar mais ({itens.length - shown.length} restantes)
+        </button>
+      )}
+
+      <footer>
+        Margem já descontadas comissão, custo operacional e frete do ML. Ainda fora: embalagem, imposto do seu regime e
+        parcelamento. “Atualizar ao vivo” busca o preço do concorrente na hora pela API oficial.
+      </footer>
+    </>
   )
 }
 

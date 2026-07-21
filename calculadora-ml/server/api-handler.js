@@ -1,4 +1,4 @@
-import { authStatus, getFees, predictCategory, buildAuthUrl, exchangeCode } from './ml.js'
+import { authStatus, getFees, predictCategory, buildAuthUrl, exchangeCode, getCatalogLive } from './ml.js'
 
 // Handler compartilhado das rotas /api/* e /callback.
 // Usado tanto pelo dev-server do Vite (vite-plugin-api.js) quanto pelo
@@ -27,6 +27,42 @@ export async function handleApi(req, res) {
     if (path === '/api/auth/status') { json(res, authStatus()); return true }
     if (path === '/api/predict-category') { json(res, await predictCategory(url.searchParams.get('q') || '')); return true }
     if (path === '/api/fees') { json(res, await getFees(Object.fromEntries(url.searchParams))); return true }
+    if (path === '/api/vantagem/live') {
+      const catalogId = (url.searchParams.get('catalog_id') || '').trim()
+      const custo = Number(url.searchParams.get('custo') || 0)
+      // frete estimado guardado da análise (peso não é conhecido ao vivo)
+      const freteBase = Number(url.searchParams.get('frete') || 0)
+      if (!catalogId) { res.statusCode = 400; json(res, { error: 'faltou catalog_id' }); return true }
+      const live = await getCatalogLive(catalogId)
+      let comissao = null
+      if (live.price != null) {
+        const fees = await getFees({
+          price: String(live.price),
+          category_id: live.category_id || '',
+          logistic_type: live.logistic_type || 'cross_docking',
+        })
+        // commission_total já inclui a comissão % + o custo fixo do ML
+        comissao = fees?.commission_total ?? null
+      }
+      // custo ML total = comissão (atualizada com o preço de agora) + frete estimado
+      const custoMl = comissao != null ? comissao + freteBase : null
+      const margemRs = live.price != null && custoMl != null ? live.price - custo - custoMl : null
+      const margemPct = margemRs != null && live.price ? margemRs / live.price : null
+      json(res, {
+        catalog_id: catalogId,
+        price_now: live.price,
+        n_vend: live.n_vend,
+        status: live.status,
+        item_id: live.item_id,
+        category_id: live.category_id,
+        comissao,
+        frete: freteBase,
+        custo_ml: custoMl,
+        margem_rs: margemRs,
+        margem_pct: margemPct,
+      })
+      return true
+    }
     return false
   } catch (e) {
     res.statusCode = e.status || 500
