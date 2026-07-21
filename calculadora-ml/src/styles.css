@@ -7,17 +7,10 @@
   --shadow: 0 1px 2px rgba(20,25,35,.05), 0 8px 24px rgba(20,25,35,.06);
   --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #0F1113; --panel: #171A1D; --ink: #ECEDEF; --soft: #9BA1AC; --line: #2A2E33;
-    --accent: #5FBAB5; --accent-soft: #4C8886; --accent-bg: #132524;
-    --good: #5AC58C; --good-bg: #122A1D; --good-line: #26523B;
-    --bad: #E58077; --bad-bg: #2A1815; --bad-line: #57302A;
-    --warn: #DDB24E; --warn-bg: #2A2412; --warn-line: #54491F;
-    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
-  }
-}
+/* Tema fixo claro (branco). O bloco de dark mode foi removido de proposito
+   para o site NUNCA seguir o modo escuro do navegador. */
 * { box-sizing: border-box; }
+html { color-scheme: light; }
 body {
   margin: 0; background: var(--paper); color: var(--ink);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
