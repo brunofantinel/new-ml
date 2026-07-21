@@ -28,9 +28,9 @@ const margemRealPct = (i) => {
 }
 
 const TIER_INFO = {
-  competir: { label: 'Pode competir', cls: 'good' },
-  conferir: { label: 'Conferir antes', cls: 'warn' },
-  apertado: { label: 'Apertado', cls: 'bad' },
+  competir: { label: '💚 Vale a pena', cls: 'good' },
+  conferir: { label: '👀 Dê uma olhada antes', cls: 'warn' },
+  apertado: { label: '🔴 Quase não sobra', cls: 'bad' },
 }
 
 export default function App() {
@@ -149,41 +149,42 @@ function Vantagens() {
 
   return (
     <>
-      <div className="eyebrow">Análise · seu custo × concorrente × taxas reais</div>
-      <h1>Onde você tem vantagem no Mercado Livre</h1>
+      <div className="eyebrow">O que você paga × o que vendem no Mercado Livre</div>
+      <h1>Onde vale a pena vender no Mercado Livre</h1>
       <p className="sub">
-        Pesquisa de {db.data_pesquisa}. Comparei seu custo com o menor preço do concorrente no catálogo, já
-        descontando <b>todas</b> as taxas do ML. Clique em “Atualizar ao vivo” para conferir o preço do concorrente agora.
+        Comparei o que cada produto te custa com o preço mais barato do mesmo item no Mercado Livre — já tirando
+        tudo o que o site desconta (comissão e frete). Assim você vê <b>quanto sobraria no seu bolso</b> em cada venda.
+        Toque em “Ver preço de agora” para conferir o valor de hoje. Levantamento de {db.data_pesquisa}.
       </p>
 
       <div className="tiles">
-        <div className="tile good"><b>{db.contagem.competir}</b><span>podem competir</span></div>
-        <div className="tile warn"><b>{db.contagem.conferir}</b><span>conferir antes</span></div>
-        <div className="tile bad"><b>{db.contagem.apertado}</b><span>apertado / não fecha</span></div>
-        <div className="tile"><b>{money(somaCompetir)}</b><span>margem somada (podem competir)</span></div>
+        <div className="tile good"><b>{db.contagem.competir}</b><span>valem a pena</span></div>
+        <div className="tile warn"><b>{db.contagem.conferir}</b><span>dê uma olhada antes</span></div>
+        <div className="tile bad"><b>{db.contagem.apertado}</b><span>quase não sobra</span></div>
+        <div className="tile"><b>{money(somaCompetir)}</b><span>sobra somada dos que valem a pena</span></div>
       </div>
 
       <div className="filters card">
-        <input placeholder="Buscar produto, marca ou código…" value={q} onChange={(e) => { setQ(e.target.value); setLimit(50) }} />
+        <input placeholder="Buscar por nome, marca ou código…" value={q} onChange={(e) => { setQ(e.target.value); setLimit(50) }} />
         <select value={tier} onChange={(e) => { setTier(e.target.value); setLimit(50) }}>
-          <option value="todos">Todos os níveis</option>
-          <option value="competir">Podem competir</option>
-          <option value="conferir">Conferir antes</option>
-          <option value="apertado">Apertado / não fecha</option>
+          <option value="todos">Mostrar todos</option>
+          <option value="competir">Só os que valem a pena</option>
+          <option value="conferir">Dar uma olhada antes</option>
+          <option value="apertado">Quase não sobra</option>
         </select>
         <select value={grupo} onChange={(e) => { setGrupo(e.target.value); setLimit(50) }}>
-          <option value="todos">Todos os departamentos</option>
+          <option value="todos">Todos os tipos de produto</option>
           {grupos.map((g) => <option key={g} value={g}>{g}</option>)}
         </select>
         <select value={sort} onChange={(e) => setSort(e.target.value)}>
-          <option value="margem_rs">Ordenar: maior margem R$</option>
-          <option value="margem_pct">Ordenar: maior margem %</option>
-          <option value="score">Ordenar: melhor score</option>
-          <option value="preco_conc">Ordenar: maior preço concorrente</option>
+          <option value="margem_rs">Ordenar: maior sobra em R$</option>
+          <option value="margem_pct">Ordenar: maior sobra em %</option>
+          <option value="score">Ordenar: mais recomendados</option>
+          <option value="preco_conc">Ordenar: mais caros no ML</option>
         </select>
       </div>
 
-      <p className="hint">{itens.length} produtos no filtro · mostrando {shown.length}</p>
+      <p className="hint">{itens.length} produtos · mostrando os {shown.length} primeiros</p>
 
       <div className="vlist">
         {shown.map((item) => {
@@ -194,18 +195,18 @@ function Vantagens() {
               <div className="vhead">
                 <span className={'pill ' + ti.cls}>{ti.label}</span>
                 <span className="vgrp">{item.grupo}</span>
-                {item.n_vend != null && <span className="vgrp">{item.n_vend} vendedor{item.n_vend === 1 ? '' : 'es'}</span>}
-                {item.chance && <span className="vgrp">chance {item.chance.toLowerCase()}</span>}
+                {item.n_vend != null && <span className="vgrp">{item.n_vend} loja{item.n_vend === 1 ? '' : 's'} vendendo</span>}
+                {item.chance === 'ALTA' && <span className="vgrp">boa chance p/ loja nova</span>}
               </div>
               <div className="vname">{item.produto}</div>
-              <div className="vsub">{item.marca}{item.produto_ml ? ` · casou com: ${item.produto_ml}` : ''}</div>
+              <div className="vsub">{item.marca}{item.produto_ml ? ` · no Mercado Livre: ${item.produto_ml}` : ''}</div>
 
               <div className="vrows">
-                <div className="brow"><span className="k">Seu custo</span><span className="v">{money(item.custo)}</span></div>
-                <div className="brow"><span className="k">Concorrente + barato</span><span className="v">{money(item.preco_conc)}</span></div>
-                <div className="brow"><span className="k">− Taxas do ML</span><span className="v">− {money(item.custo_ml)}</span></div>
+                <div className="brow"><span className="k">Você paga (fornecedor)</span><span className="v">{money(item.custo)}</span></div>
+                <div className="brow"><span className="k">Mais barato no ML hoje</span><span className="v">{money(item.preco_conc)}</span></div>
+                <div className="brow"><span className="k">O Mercado Livre desconta</span><span className="v">− {money(item.custo_ml)}</span></div>
                 <div className="brow total">
-                  <span className="k">Margem se igualar</span>
+                  <span className="k">Sobra pra você</span>
                   <span className={'v ' + (margemReal(item) >= 0 ? 'pos' : 'neg')}>{money(margemReal(item))} · {pct(margemRealPct(item))}</span>
                 </div>
               </div>
@@ -213,21 +214,21 @@ function Vantagens() {
               {lv?.data && (
                 <div className={'vlive' + (lv.data.margem_rs != null && lv.data.margem_rs < 0 ? ' neg' : '')}>
                   {lv.data.price_now == null ? (
-                    <>⚠️ <b>Agora:</b> sem vendedor ativo no catálogo neste momento.</>
+                    <>⚠️ <b>Agora:</b> ninguém está vendendo esse item no momento.</>
                   ) : (
-                    <><b>Agora:</b> concorrente {money(lv.data.price_now)} → margem {money(lv.data.margem_rs)} · {pct(lv.data.margem_pct)}</>
+                    <><b>Preço de hoje:</b> {money(lv.data.price_now)} no ML → sobrariam <b>{money(lv.data.margem_rs)}</b> ({pct(lv.data.margem_pct)})</>
                   )}
                 </div>
               )}
-              {lv?.err && <div className="vlive err">Falha ao atualizar: {lv.err}</div>}
+              {lv?.err && <div className="vlive err">Não consegui buscar o preço agora. Tente de novo.</div>}
 
               <div className="vfoot">
                 <button className="ghost" disabled={lv?.loading || !item.catalog_id} onClick={() => atualizar(item)}>
-                  {lv?.loading ? 'Consultando o ML…' : 'Atualizar ao vivo'}
+                  {lv?.loading ? 'Buscando preço…' : 'Ver preço de agora'}
                 </button>
-                {item.url_cat && <a className="ghost link" href={item.url_cat} target="_blank" rel="noreferrer">Ver no ML ▸</a>}
+                {item.url_cat && <a className="ghost link" href={item.url_cat} target="_blank" rel="noreferrer">Abrir no Mercado Livre ▸</a>}
               </div>
-              {item.nota && <div className="hint vnote">{item.nota}</div>}
+              {item.nota && <div className="hint vnote">💬 {item.nota}</div>}
             </div>
           )
         })}
@@ -235,13 +236,13 @@ function Vantagens() {
 
       {shown.length < itens.length && (
         <button className="primary" style={{ marginTop: 16 }} onClick={() => setLimit((l) => l + 50)}>
-          Mostrar mais ({itens.length - shown.length} restantes)
+          Ver mais produtos ({itens.length - shown.length} restantes)
         </button>
       )}
 
       <footer>
-        Margem já descontadas comissão, custo operacional e frete do ML. Ainda fora: embalagem, imposto do seu regime e
-        parcelamento. “Atualizar ao vivo” busca o preço do concorrente na hora pela API oficial.
+        A “sobra pra você” já tira a comissão e o frete do Mercado Livre. Ainda não estão na conta: embalagem, imposto
+        e a taxa de quando o cliente parcela. “Ver preço de agora” consulta o valor do produto no site na hora.
       </footer>
     </>
   )
@@ -442,14 +443,13 @@ function Calculator() {
       </div>
 
       <div className="callout">
-        <b>Como funciona:</b> a comissão e o custo fixo vêm de <code>/listing_prices</code> e o frete de{' '}
-        <code>/shipping_options/free</code>, ambos da sua conta. Ainda não entram na conta: embalagem, imposto do seu
-        regime e taxa de parcelamento no cartão.
+        <b>Como funciona:</b> a comissão e o frete vêm direto do Mercado Livre, com os valores reais da sua conta.
+        Ainda não entram na conta: a embalagem, o imposto da sua empresa e a taxa de quando o cliente paga parcelado.
       </div>
 
       <footer>
-        Números reais da API do Mercado Livre, calculados no momento da consulta. Podem variar por reputação, CEP de
-        destino e disponibilidade de promoções de frete.
+        Valores reais do Mercado Livre, buscados na hora do cálculo. Podem mudar conforme a reputação da loja, o CEP de
+        destino e as promoções de frete do momento.
       </footer>
     </>
   )
