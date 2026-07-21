@@ -1,0 +1,6 @@
+# nunca versionar segredos nem binarios
+definir_ambiente.bat
+cloudflared.exe
+__pycache__/
+*.pyc
+*.log

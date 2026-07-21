@@ -81,6 +81,7 @@ export default function App() {
     <div className="wrap">
       <nav className="tabs">
         <button className={view === 'calc' ? 'tab on' : 'tab'} onClick={() => setView('calc')}>Calculadora</button>
+        <button className={view === 'produto' ? 'tab on' : 'tab'} onClick={() => setView('produto')}>Consultar produto</button>
         <button className={view === 'mercado' ? 'tab on' : 'tab'} onClick={() => setView('mercado')}>Pesquisa de mercado</button>
         <button className={view === 'vantagens' ? 'tab on' : 'tab'} onClick={() => setView('vantagens')}>Vantagens no ML</button>
       </nav>
@@ -89,6 +90,8 @@ export default function App() {
         <Vantagens />
       ) : view === 'mercado' ? (
         <Mercado />
+      ) : view === 'produto' ? (
+        <Produto />
       ) : (
         <>
           <div className="eyebrow">Taxas reais · API oficial do Mercado Livre</div>
@@ -291,6 +294,142 @@ function Vantagens() {
         A “sobra pra você” já desconta a comissão e o frete do Mercado Livre e o imposto federal do Lucro Presumido
         ({IMPOSTO_PCT}%: PIS, COFINS, IRPJ e CSLL). Ainda ficam de fora: ICMS, embalagem e a taxa de parcelamento.
         “Ver preço de agora” consulta o valor do produto no site na hora.
+      </footer>
+    </>
+  )
+}
+
+function Linha({ k, v }) {
+  if (v == null || v === '' ) return null
+  return <div className="brow"><span className="k">{k}</span><span className="v">{v}</span></div>
+}
+
+function Produto() {
+  const [cod, setCod] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [p, setP] = useState(null)
+  const [msg, setMsg] = useState(null)
+
+  async function consultar() {
+    const c = cod.trim()
+    if (!c) return
+    setBusy(true); setMsg(null); setP(null)
+    try {
+      const d = await fetch('/api/produto?cod=' + encodeURIComponent(c)).then((r) => r.json())
+      if (d.encontrado) setP(d)
+      else setMsg({
+        erp_nao_configurado: 'A conexão com o sistema da loja ainda não foi configurada (ERP_API_URL no servidor).',
+        erp_indisponivel: 'O agente da loja está offline. Confira se o computador da loja está ligado e o agente rodando.',
+        erp_timeout: 'O sistema da loja demorou para responder. Tente de novo.',
+        codigo_invalido: 'Digite um código numérico.',
+      }[d.erro] || `Não achei nenhum produto com o código ${c}.`)
+    } catch {
+      setMsg('Não consegui consultar agora. Tente de novo.')
+    }
+    setBusy(false)
+  }
+
+  const dim = p?.dimensoes || {}
+  const imp = p?.impostos_cadastro || {}
+  const fe = p?.fiscal_entrada
+
+  return (
+    <>
+      <div className="eyebrow">Direto do sistema da loja · em tempo real</div>
+      <h1>Consultar produto</h1>
+      <p className="sub">
+        Digite o <b>código interno</b> do produto e veja tudo que o sistema da loja tem sobre ele — descrição, marca,
+        NCM, impostos, custo e estoque, na hora.
+      </p>
+
+      <div className="card">
+        <div className="row-inline">
+          <div className="field" style={{ flex: 1 }}>
+            <input
+              placeholder="código interno do produto (ex: 4346)"
+              value={cod}
+              inputMode="numeric"
+              onChange={(e) => setCod(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') consultar() }}
+            />
+          </div>
+          <button className="primary" onClick={consultar} disabled={busy}>
+            {busy ? 'Consultando…' : 'Consultar'}
+          </button>
+        </div>
+        {msg && <div className="callout warn" style={{ marginTop: 10 }}>{msg}</div>}
+      </div>
+
+      {p && (
+        <>
+          <div className="card">
+            <div className="mkt-name" style={{ fontSize: 17 }}>{p.descricao}</div>
+            <div className="hint" style={{ marginTop: 2 }}>
+              código {p.codigo}{p.marca ? ` · ${p.marca}` : ''}{p.referencia ? ` · ref ${p.referencia}` : ''}
+            </div>
+            <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <span className={'pill ' + (p.ativo ? '' : 'bad')}>{p.ativo ? 'Ativo' : 'Inativo'}</span>
+              {p.fora_linha && <span className="pill warn">Fora de linha</span>}
+              {fe?.st && <span className="pill">Substituição Tributária</span>}
+            </div>
+          </div>
+
+          <div className="grid">
+            <div className="card">
+              <h2>Identificação</h2>
+              <Linha k="Código de barras" v={p.codigo_barras} />
+              <Linha k="NCM" v={p.ncm} />
+              <Linha k="CEST" v={p.cest} />
+              <Linha k="Unidade" v={p.unidade} />
+              <Linha k="Grupo" v={p.grupo} />
+              <Linha k="Subgrupo" v={p.subgrupo} />
+              <Linha k="Fornecedor" v={p.fornecedor} />
+              <Linha k="Cadastrado em" v={p.dt_cadastro && new Date(p.dt_cadastro).toLocaleDateString('pt-BR')} />
+            </div>
+
+            <div className="card">
+              <h2>Custo e estoque</h2>
+              <Linha k="Último custo" v={p.custo?.ultimo != null ? money(p.custo.ultimo) : null} />
+              <Linha k="Custo médio" v={p.custo?.medio != null ? money(p.custo.medio) : null} />
+              <Linha k="Estoque" v={p.estoque != null ? `${p.estoque.toLocaleString('pt-BR')} ${p.unidade || ''}`.trim() : '—'} />
+              <h2 style={{ marginTop: 16 }}>Dimensões</h2>
+              <Linha k="Peso (un.)" v={dim.peso_unit_kg ? `${dim.peso_unit_kg} kg` : null} />
+              <Linha k="Peso embalado" v={dim.peso_emb_kg ? `${dim.peso_emb_kg} kg` : null} />
+              <Linha k="Alt × Larg × Comp" v={(dim.altura_cm || dim.largura_cm || dim.comprimento_cm) ? `${dim.altura_cm || 0} × ${dim.largura_cm || 0} × ${dim.comprimento_cm || 0} cm` : null} />
+              {!dim.peso_unit_kg && !dim.peso_emb_kg && !dim.altura_cm && <div className="hint">Sem medidas cadastradas.</div>}
+            </div>
+          </div>
+
+          <div className="card">
+            <h2>Impostos</h2>
+            {fe ? (
+              <div className="callout" style={{ marginBottom: 12 }}>
+                {fe.st
+                  ? <>🟢 Comprado com <b>Substituição Tributária</b> — ICMS já pago na compra (revenda = 0).</>
+                  : <>🧾 <b>Não-ST</b> — ICMS de compra (crédito) <b>{fe.icms_compra_pct}%</b> · CFOP {fe.cfop_entrada}.</>}
+                {fe.dt_entrada && <div className="hint" style={{ marginTop: 4 }}>Baseado na última nota de entrada de {new Date(fe.dt_entrada).toLocaleDateString('pt-BR')}.</div>}
+              </div>
+            ) : (
+              <div className="hint" style={{ marginBottom: 12 }}>Sem nota de entrada registrada para este produto.</div>
+            )}
+            <Linha k="ICMS (cadastro)" v={imp.icms_pct != null ? `${imp.icms_pct}%` : null} />
+            <Linha k="CSOSN" v={imp.csosn} />
+            <Linha k="Substituição tributária (cadastro)" v={imp.subtrib_pct ? `${imp.subtrib_pct}%` : null} />
+            <Linha k="PIS" v={imp.pis_pct != null ? `${imp.pis_pct}%` : null} />
+            <Linha k="COFINS" v={imp.cofins_pct != null ? `${imp.cofins_pct}%` : null} />
+            <Linha k="IPI" v={imp.ipi_pct != null ? `${imp.ipi_pct}%` : null} />
+            <Linha k="CST IPI" v={imp.cst_ipi} />
+            <Linha k="CFOP (cadastro)" v={imp.cfop} />
+          </div>
+
+          {p.observacao && (
+            <div className="card"><h2>Observação</h2><div className="hint">{p.observacao}</div></div>
+          )}
+        </>
+      )}
+
+      <footer>
+        Dados lidos ao vivo do sistema da loja (somente leitura). Precisa do agente local ligado e do túnel ativo.
       </footer>
     </>
   )
