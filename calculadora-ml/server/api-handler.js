@@ -1,7 +1,7 @@
 import { authStatus, getFees, predictCategory, buildAuthUrl, exchangeCode, getCatalogLive } from './ml.js'
 import { findCompetitor } from './catalog.js'
 import { lookupImposto } from './impostos.js'
-import { pesquisarMercado } from './mercado.js'
+import { pesquisarMercado, buscarAnuncios } from './mercado.js'
 import { consultarProdutoErp, erpStatus } from './erp.js'
 
 // Handler compartilhado das rotas /api/* e /callback.
@@ -34,6 +34,15 @@ export async function handleApi(req, res) {
     if (path === '/api/fees') { json(res, await getFees(Object.fromEntries(url.searchParams))); return true }
     if (path === '/api/imposto') { json(res, lookupImposto(url.searchParams.get('cod') || '')); return true }
     if (path === '/api/mercado') { json(res, await pesquisarMercado(url.searchParams.get('q') || '')); return true }
+    if (path === '/api/anuncios') {
+      json(res, await buscarAnuncios({
+        gtin: url.searchParams.get('gtin') || '',
+        gtin_nf: url.searchParams.get('gtin_nf') || '',
+        ref: url.searchParams.get('ref') || '',
+        nome: url.searchParams.get('nome') || '',
+      }))
+      return true
+    }
     if (path === '/api/produto') { json(res, await consultarProdutoErp(url.searchParams.get('cod') || '')); return true }
     if (path === '/api/erp/status') { json(res, await erpStatus()); return true }
     if (path === '/api/vantagem/live') {

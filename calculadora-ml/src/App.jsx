@@ -66,6 +66,14 @@ const TIER_INFO = {
   apertado: { label: '🔴 Quase não sobra', cls: 'bad' },
 }
 
+// Como o anúncio foi encontrado (qual identificador casou).
+const VIA_TXT = {
+  codigo_barras: 'código de barras',
+  codigo_barras_nf: 'código de barras da NF',
+  referencia: 'referência',
+  descricao: 'descrição',
+}
+
 export default function App() {
   const [view, setView] = useState('calc')
   const [status, setStatus] = useState({ loading: true, ready: false })
@@ -638,6 +646,7 @@ function Calculator() {
   const [predicting, setPredicting] = useState(false)
   const [comp, setComp] = useState(null)
   const [res, setRes] = useState(null)
+  const [anuncios, setAnuncios] = useState({ loading: false, data: null })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
 
@@ -722,10 +731,31 @@ function Calculator() {
     setDbBusy(false)
   }
 
+  // Busca os anúncios desse produto no ML tentando os identificadores em ordem
+  // de precisão: código de barras (GTIN) -> referência -> descrição.
+  async function buscarAnunciosProduto() {
+    const gtin = produtoDb?.codigo_barras || ''
+    const ref = produtoDb?.referencia || ''
+    const nome = produtoDb?.descricao || f.titulo || ''
+    if (!gtin && !ref && !nome.trim()) return
+    setAnuncios({ loading: true, data: null })
+    try {
+      const qs = new URLSearchParams()
+      if (gtin) qs.set('gtin', gtin)
+      if (ref) qs.set('ref', ref)
+      if (nome) qs.set('nome', nome)
+      const d = await fetch('/api/anuncios?' + qs.toString()).then((r) => r.json())
+      setAnuncios({ loading: false, data: d })
+    } catch {
+      setAnuncios({ loading: false, data: null })
+    }
+  }
+
   async function calcular() {
     setBusy(true)
     setErr(null)
     setRes(null)
+    setAnuncios({ loading: false, data: null })
     try {
       const pesoG = Math.round((parseFloat(f.pesoKg) || 0) * 1000)
       const q = new URLSearchParams({
@@ -742,6 +772,7 @@ function Calculator() {
       const d = await fetch('/api/fees?' + q.toString()).then((r) => r.json())
       if (d.error) throw new Error(d.detail?.message || d.error)
       setRes(d)
+      buscarAnunciosProduto() // em paralelo: já traz os anúncios daquele produto
     } catch (e) {
       setErr(e.message)
     }
@@ -1035,6 +1066,58 @@ function Calculator() {
               </>
             )}
           </div>
+
+          {(anuncios.loading || anuncios.data) && (
+            <div className="card">
+              <h2>🛒 Anúncios desse produto no Mercado Livre</h2>
+              {anuncios.loading ? (
+                <p className="spin">Procurando anúncios…</p>
+              ) : anuncios.data?.matched && (anuncios.data?.n_vendedores || 0) > 0 ? (
+                <>
+                  <div className="mkt-prod">
+                    {anuncios.data.product.thumbnail && <img src={anuncios.data.product.thumbnail} alt="" className="mkt-thumb" />}
+                    <div style={{ flex: 1 }}>
+                      <div className="mkt-name">{anuncios.data.product.name}</div>
+                      <div className="hint">
+                        {anuncios.data.n_vendedores} vendedor{anuncios.data.n_vendedores === 1 ? '' : 'es'}
+                        {anuncios.data.via ? ` · achado pela ${VIA_TXT[anuncios.data.via] || 'busca'}` : ''}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="tiles" style={{ marginTop: 10 }}>
+                    <div className="tile good"><b>{money(anuncios.data.preco.min)}</b><span>menor preço</span></div>
+                    <div className="tile"><b>{money(anuncios.data.preco.mediana)}</b><span>típico</span></div>
+                    <div className="tile bad"><b>{money(anuncios.data.preco.max)}</b><span>maior preço</span></div>
+                  </div>
+                  <a className="primary" style={{ display: 'block', textAlign: 'center', marginTop: 12 }}
+                    href={anuncios.data.product.permalink} target="_blank" rel="noreferrer">
+                    Ver anúncios no Mercado Livre ▸
+                  </a>
+                  {anuncios.data.anuncios?.length > 0 && (
+                    <div className="mkt-list" style={{ marginTop: 12 }}>
+                      {anuncios.data.anuncios.slice(0, 6).map((a) => (
+                        <a className={'mkt-item' + (a.winner ? ' win' : '')} key={a.item_id}
+                          href={a.permalink} target="_blank" rel="noreferrer"
+                          style={{ textDecoration: 'none', color: 'inherit' }}>
+                          <div className="mkt-item-price">{money(a.price)}</div>
+                          <div className="mkt-item-sel">
+                            <div>{a.nickname} {a.winner && <span className="pill">buy box</span>} {a.oficial && <span className="pill">oficial</span>}</div>
+                            <div className="hint">{a.uf} · {a.tipo}{a.free_shipping ? ' · frete grátis' : ''}</div>
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                  <div className="hint" style={{ marginTop: 8 }}>Clique num anúncio (ou no botão) para abrir no Mercado Livre.</div>
+                </>
+              ) : (
+                <div className="hint">
+                  Não achei anúncios ativos desse produto no ML — tentei pelo{' '}
+                  {produtoDb ? 'código de barras, referência e descrição' : 'nome digitado'}.
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

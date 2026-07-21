@@ -61,6 +61,31 @@ const UF_SIGLA = {
 }
 const TIPO = { gold_pro: 'Premium', gold_special: 'Clássico' }
 
+// Acha os anúncios de UM produto específico tentando os identificadores em
+// ordem de precisão: código de barras (GTIN) -> código de barras da NF ->
+// referência -> descrição. Retorna o primeiro que tiver vendedor ativo,
+// anotando por qual identificador casou (via/termo).
+export async function buscarAnuncios({ gtin, gtin_nf, ref, nome } = {}) {
+  const tentativas = [
+    gtin && { via: 'codigo_barras', q: String(gtin) },
+    gtin_nf && { via: 'codigo_barras_nf', q: String(gtin_nf) },
+    ref && { via: 'referencia', q: String(ref) },
+    nome && { via: 'descricao', q: String(nome) },
+  ].filter(Boolean)
+
+  if (!tentativas.length) return { matched: false, reason: 'sem_identificador' }
+
+  let ultimo = null
+  for (const t of tentativas) {
+    const r = await pesquisarMercado(t.q).catch(() => null)
+    if (!r) continue
+    ultimo = { ...r, via: t.via, termo: t.q }
+    if (r.matched && (r.n_vendedores || 0) > 0) return ultimo
+  }
+  // nenhum com vendedor ativo — devolve o último que ao menos achou o produto
+  return ultimo || { matched: false, reason: 'sem_resultado' }
+}
+
 export async function pesquisarMercado(query) {
   const q = limparNome(query) || String(query || '')
   if (!q.trim()) return { matched: false, reason: 'sem_query' }
@@ -125,6 +150,7 @@ export async function pesquisarMercado(query) {
       selo: rep.selo,
       vendas_hist: rep.vendas_hist,
       winner: it.item_id === winnerItem.item_id,
+      permalink: it.permalink || `https://www.mercadolivre.com.br/p/${prodBusca.id}`,
     }
   })
 
