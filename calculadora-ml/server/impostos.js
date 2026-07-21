@@ -6,25 +6,30 @@ import path from 'node:path'
 // Carregado uma unica vez em memoria (lazy) e consultado por GTIN ou codigo.
 
 let MAPA = null // { _meta, por_gtin, por_cod }
+let NCM = null  // { _meta, por_ncm }
 
-function carregar() {
-  if (MAPA) return MAPA
+function lerJson(nome, fallback) {
   const candidatos = [
-    path.resolve(process.cwd(), 'dist', 'impostos_app.json'),
-    path.resolve(process.cwd(), 'public', 'impostos_app.json'),
+    path.resolve(process.cwd(), 'dist', nome),
+    path.resolve(process.cwd(), 'public', nome),
   ]
   for (const p of candidatos) {
     try {
-      if (fs.existsSync(p)) {
-        MAPA = JSON.parse(fs.readFileSync(p, 'utf-8'))
-        return MAPA
-      }
+      if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, 'utf-8'))
     } catch {
       /* tenta o proximo */
     }
   }
-  MAPA = { _meta: { ausente: true }, por_gtin: {}, por_cod: {} }
+  return fallback
+}
+
+function carregar() {
+  if (!MAPA) MAPA = lerJson('impostos_app.json', { _meta: { ausente: true }, por_gtin: {}, por_cod: {} })
   return MAPA
+}
+function carregarNcm() {
+  if (!NCM) NCM = lerJson('impostos_ncm.json', { _meta: { ausente: true }, por_ncm: {} })
+  return NCM
 }
 
 // so digitos (o usuario pode digitar com espacos/traco no codigo de barras)
@@ -45,16 +50,37 @@ export function lookupImposto(termo) {
   // 2) senao, tenta como codigo interno do produto
   if (!r && dig) { r = mapa.por_cod[dig]; chave = 'cod' }
 
-  if (!r) return { encontrado: false }
-  return {
-    encontrado: true,
-    por: chave,
-    st: !!r.st,
-    icms: Number(r.icms) || 0, // % ICMS interno configurado (info)
-    ic: Number(r.ic) || 0,     // % ICMS destacado na compra = credito
-    ncm: r.ncm || '',
-    descr: r.d || '',
+  if (r) {
+    return {
+      encontrado: true,
+      por: chave,
+      st: !!r.st,
+      icms: Number(r.icms) || 0, // % ICMS interno configurado (info)
+      ic: Number(r.ic) || 0,     // % ICMS destacado na compra = credito
+      ncm: r.ncm || '',
+      descr: r.d || '',
+    }
   }
+
+  // 3) senao, tenta como NCM (8 digitos) -> agregado do proprio historico
+  if (dig.length === 8) {
+    const g = carregarNcm().por_ncm[dig]
+    if (g) {
+      return {
+        encontrado: true,
+        por: 'ncm',
+        st: !!g.st,
+        icms: 0,
+        ic: Number(g.ic) || 0,
+        ncm: dig,
+        share: Number(g.share) || 0, // fracao de produtos ST nesse NCM
+        n: Number(g.n) || 0,         // quantos produtos sustentam a estatistica
+        descr: `NCM ${dig} — baseado em ${g.n} produto(s) da sua base`,
+      }
+    }
+  }
+
+  return { encontrado: false }
 }
 
 export function impostosMeta() {

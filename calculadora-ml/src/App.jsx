@@ -482,6 +482,9 @@ function Calculator() {
     custo: '15.00',
     codigo: '',
     ufDestino: UF_ORIGEM,
+    impostoManual: false,
+    manualSt: false,
+    manualCredito: '',
     listingType: 'gold_special',
     logisticType: 'cross_docking',
     alt: '', larg: '', comp: '',
@@ -565,7 +568,10 @@ function Calculator() {
   const custo = parseFloat(f.custo) || 0
   const comissao = res?.commission_total ?? 0
   const frete = res?.freight ?? 0
-  const fic = fiscal.data?.encontrado ? fiscal.data : null
+  // fonte do ICMS: manual (se marcado) tem prioridade sobre a busca por código/NCM
+  const fic = f.impostoManual
+    ? { st: f.manualSt, ic: parseFloat(f.manualCredito) || 0, por: 'manual' }
+    : (fiscal.data?.encontrado ? fiscal.data : null)
   // ICMS líquido = débito na venda (alíquota interna do destino × preço)
   //              − crédito da compra (ICMS destacado na entrada × custo).
   // Para ST o débito e o crédito são zero (ICMS já pago na compra).
@@ -596,11 +602,11 @@ function Calculator() {
               </div>
             </div>
             <div className="field">
-              <label>Código de barras ou código do produto (traz o ICMS real)</label>
+              <label>Código de barras, código do produto ou NCM (traz o ICMS real)</label>
               <div className="row-inline">
                 <div className="field">
                   <input
-                    placeholder="ex: 7891153044323"
+                    placeholder="ex: 7891153044323  ·  ou o NCM 48201000"
                     value={f.codigo}
                     onChange={upd('codigo')}
                     onKeyDown={(e) => { if (e.key === 'Enter') buscarImposto() }}
@@ -612,7 +618,15 @@ function Calculator() {
               </div>
               {fiscal.data && (fiscal.data.encontrado ? (
                 <div className="callout" style={{ margin: '10px 0 0' }}>
-                  {fiscal.data.st ? (
+                  {fiscal.data.por === 'ncm' ? (
+                    fiscal.data.st ? (
+                      <>🟢 <b>NCM {fiscal.data.ncm}</b> — normalmente <b>ST</b> ({Math.round(fiscal.data.share * 100)}% dos
+                      seus produtos desse NCM). ICMS na revenda ≈ <b>0</b>.</>
+                    ) : (
+                      <>🧾 <b>NCM {fiscal.data.ncm}</b> — normalmente <b>não-ST</b>. Crédito típico de compra{' '}
+                      <b>{fiscal.data.ic}%</b>. O ICMS sai pelo estado de destino.</>
+                    )
+                  ) : fiscal.data.st ? (
                     <>🟢 <b>{fiscal.data.descr}</b> — <b>Substituição Tributária</b>: o ICMS já foi pago na compra,
                     então na revenda o <b>ICMS = 0</b>.</>
                   ) : (
@@ -621,15 +635,16 @@ function Calculator() {
                     compra. Escolha o destino abaixo.</>
                   )}
                   <div className="hint" style={{ marginTop: 6 }}>
-                    Origem: notas de entrada do seu ERP{fiscal.data.por === 'cod' ? ' (achado pelo código interno)' : ''}.
-                    Alíquotas internas por estado são aproximadas — confirme com o contador.
+                    {fiscal.data.por === 'ncm'
+                      ? `Estimado pelo NCM (média de ${fiscal.data.n} produto(s) seus). Se quiser precisão, use o código de barras ou ajuste manual abaixo.`
+                      : `Origem: notas de entrada do seu ERP${fiscal.data.por === 'cod' ? ' (achado pelo código interno)' : ''}. Alíquotas internas por estado são aproximadas — confirme com o contador.`}
                   </div>
                 </div>
               ) : (
                 <div className="hint" style={{ marginTop: 8 }}>
                   {fiscal.data.erro === 'mapa_ausente'
                     ? 'A base de impostos ainda não foi gerada (rode o extrator do ERP).'
-                    : 'Não achei esse código na base de notas de entrada. O cálculo segue só com o imposto federal.'}
+                    : 'Não achei esse código nem esse NCM na sua base. Use o ajuste manual abaixo.'}
                 </div>
               ))}
               {fiscal.err && <div className="hint" style={{ marginTop: 8 }}>{fiscal.err}</div>}
@@ -649,6 +664,23 @@ function Calculator() {
                   : `Venda interestadual (${UF_ORIGEM}→${f.ufDestino}) — o DIFAL já está embutido na alíquota interna do destino.`}
               </div>
             </div>
+            <label className="check">
+              <input type="checkbox" checked={f.impostoManual} onChange={upd('impostoManual')} />
+              Informar o imposto manualmente (ex.: pesquisei o NCM e quero digitar)
+            </label>
+            {f.impostoManual && (
+              <div className="row2" style={{ marginTop: 8 }}>
+                <label className="check">
+                  <input type="checkbox" checked={f.manualSt} onChange={upd('manualSt')} />
+                  É ST — ICMS já pago na compra (revenda = 0)
+                </label>
+                <div className="field" style={{ marginBottom: 0 }}>
+                  <label>ICMS que você pagou na compra (crédito) %</label>
+                  <input type="number" step="0.01" placeholder="ex: 12" value={f.manualCredito}
+                    onChange={upd('manualCredito')} disabled={f.manualSt} />
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="card">

@@ -130,6 +130,13 @@ Em qualquer opção, o app casaria o produto da nota com o estoque pelo **GTIN
 > Ainda aproximado: as alíquotas internas por UF (`ICMS_UF`) são valores de 2025 e
 > devem ser confirmadas com o contador; o FCP está embutido só onde é padrão.
 
+- [x] **Busca por NCM + ajuste manual (v3)**. O campo de imposto aceita também o
+  **NCM** (8 dígitos): o app agrega o histórico da loja por NCM
+  (`impostos_ncm.json`, gerado por `gerar_mapa_ncm.py`) e responde se aquele NCM
+  costuma ser ST e qual o crédito típico. A rota `/api/imposto` tenta, nesta ordem,
+  GTIN → código interno → NCM. Há ainda um **ajuste manual** (checkbox ST + crédito %)
+  que tem prioridade, para produtos fora da base ou valores pesquisados à mão.
+
 ### Números reais da base (extração de 2026-07)
 - 63.461 produtos com nota de entrada · **96,2% com GTIN válido**.
 - **~12% ST** (ICMS revenda = 0) na última compra; ~16,6% já foram ST alguma vez.
