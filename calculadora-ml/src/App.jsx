@@ -1051,7 +1051,14 @@ function Calculator() {
                       <div className="brow sub"><span className="k">↳ menos o que você já pagou na compra ({fic.ic || 0}%)</span><span className="v">− {money(icmsCredito)}</span></div>
                     </>
                   ) : (
-                    <div className="brow"><span className="k">− ICMS (imposto do estado)</span><span className="v">não incluído</span></div>
+                    <>
+                      <div className="brow"><span className="k">− ICMS (imposto do estado)</span><span className="v">não incluído</span></div>
+                      <div className="brow sub"><span className="k">
+                        {produtoDb
+                          ? '↳ esse produto não tem nota de entrada no sistema, então não dá pra saber o ICMS'
+                          : '↳ puxe o produto do banco no passo 1 (ou use o ajuste manual) pra incluir o ICMS'}
+                      </span><span className="v" /></div>
+                    </>
                   )}
                   <div className="brow total"><span className="k">= Sobra no seu bolso</span><span className="v">{money(lucro)}</span></div>
                 </div>
