@@ -643,19 +643,29 @@ function Calculator() {
 
   const upd = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
 
-  async function predict() {
-    if (!f.titulo.trim()) return
+  // term: texto a pesquisar (default = campo título). autoPick: quando true, já
+  // escolhe a melhor categoria (preenche o category_id) e deixa as demais como
+  // alternativas — usado ao puxar o produto do banco.
+  async function predict(term, autoPick = false) {
+    const query = (typeof term === 'string' ? term : f.titulo).trim()
+    if (!query) return
     setPredicting(true)
     setCats([])
     setComp(null)
     try {
       // busca a categoria e o preço do concorrente ao mesmo tempo
       const [cd, compD] = await Promise.all([
-        fetch('/api/predict-category?q=' + encodeURIComponent(f.titulo)).then((r) => r.json()).catch(() => []),
-        fetch('/api/competitor?q=' + encodeURIComponent(f.titulo)).then((r) => r.json()).catch(() => null),
+        fetch('/api/predict-category?q=' + encodeURIComponent(query)).then((r) => r.json()).catch(() => []),
+        fetch('/api/competitor?q=' + encodeURIComponent(query)).then((r) => r.json()).catch(() => null),
       ])
-      setCats(Array.isArray(cd) ? cd : [])
+      const list = Array.isArray(cd) ? cd : []
       setComp(compD)
+      if (autoPick && list.length) {
+        setF((prev) => ({ ...prev, categoryId: list[0].category_id, categoryName: list[0].category_name }))
+        setCats(list.slice(1)) // as outras ficam como alternativas
+      } else {
+        setCats(list)
+      }
     } catch {
       setCats([])
       setComp(null)
@@ -693,6 +703,8 @@ function Calculator() {
           comp: dim.comprimento_cm != null ? String(dim.comprimento_cm) : prev.comp,
           impostoManual: false, // passa a usar o ICMS real do banco
         }))
+        // já tenta descobrir a categoria/comissão e o concorrente pela descrição
+        if (d.descricao) predict(d.descricao, true)
       } else {
         // reserva: snapshot de impostos por código/NCM
         const snap = await fetch('/api/imposto?cod=' + encodeURIComponent(c)).then((r) => r.json()).catch(() => null)
