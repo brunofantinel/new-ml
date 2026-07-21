@@ -631,6 +631,9 @@ function Calculator() {
     freteGratis: true,
   })
   const [fiscal, setFiscal] = useState({ loading: false, data: null, err: null })
+  const [produtoDb, setProdutoDb] = useState(null) // resultado ao vivo do /api/produto (agente do ERP)
+  const [dbBusy, setDbBusy] = useState(false)
+  const [dbMsg, setDbMsg] = useState(null)
   const [cats, setCats] = useState([])
   const [predicting, setPredicting] = useState(false)
   const [comp, setComp] = useState(null)
@@ -665,16 +668,46 @@ function Calculator() {
     setCats([])
   }
 
-  async function buscarImposto() {
-    const cod = f.codigo.trim()
-    if (!cod) return
-    setFiscal({ loading: true, data: null, err: null })
+  // Puxa TUDO do banco da loja (agente ao vivo) pelo código interno e preenche
+  // os campos: custo (último), peso, medidas e o ST/ICMS real da última nota de
+  // entrada. Se o agente estiver offline ou o produto não existir, cai no
+  // snapshot de impostos (/api/imposto) como reserva.
+  async function puxarDoBanco() {
+    const c = f.codigo.trim().replace(/\D/g, '')
+    if (!c) return
+    setDbBusy(true); setDbMsg(null); setProdutoDb(null)
+    setFiscal({ loading: false, data: null, err: null })
     try {
-      const d = await fetch('/api/imposto?cod=' + encodeURIComponent(cod)).then((r) => r.json())
-      setFiscal({ loading: false, data: d, err: null })
+      const d = await fetch('/api/produto?cod=' + encodeURIComponent(c)).then((r) => r.json())
+      if (d.encontrado) {
+        setProdutoDb(d)
+        const dim = d.dimensoes || {}
+        const peso = dim.peso_emb_kg || dim.peso_unit_kg
+        setF((prev) => ({
+          ...prev,
+          custo: d.custo?.ultimo != null ? String(d.custo.ultimo) : prev.custo,
+          titulo: prev.titulo || d.descricao || '',
+          pesoKg: peso != null ? String(peso) : prev.pesoKg,
+          alt: dim.altura_cm != null ? String(dim.altura_cm) : prev.alt,
+          larg: dim.largura_cm != null ? String(dim.largura_cm) : prev.larg,
+          comp: dim.comprimento_cm != null ? String(dim.comprimento_cm) : prev.comp,
+          impostoManual: false, // passa a usar o ICMS real do banco
+        }))
+      } else {
+        // reserva: snapshot de impostos por código/NCM
+        const snap = await fetch('/api/imposto?cod=' + encodeURIComponent(c)).then((r) => r.json()).catch(() => null)
+        if (snap?.encontrado) setFiscal({ loading: false, data: snap, err: null })
+        setDbMsg({
+          erp_nao_configurado: 'A conexão com o banco da loja ainda não foi configurada no servidor.',
+          erp_indisponivel: 'O agente da loja está offline' + (snap?.encontrado ? ' — usei o snapshot de impostos como reserva.' : '.'),
+          erp_timeout: 'O banco demorou a responder' + (snap?.encontrado ? ' — usei o snapshot de impostos como reserva.' : '.'),
+          codigo_invalido: 'Digite o código interno (numérico) do produto.',
+        }[d.erro] || `Não achei o produto ${c} no banco da loja.`)
+      }
     } catch {
-      setFiscal({ loading: false, data: null, err: 'Não consegui consultar o imposto agora.' })
+      setDbMsg('Não consegui puxar do banco agora. Tente de novo.')
     }
+    setDbBusy(false)
   }
 
   async function calcular() {
@@ -707,10 +740,16 @@ function Calculator() {
   const custo = parseFloat(f.custo) || 0
   const comissao = res?.commission_total ?? 0
   const frete = res?.freight ?? 0
-  // fonte do ICMS: manual (se marcado) tem prioridade sobre a busca por código/NCM
+  // fonte do ICMS, em ordem de prioridade:
+  //  1) manual (se o usuário marcou);
+  //  2) banco ao vivo — ST/crédito reais da última nota de entrada do produto;
+  //  3) snapshot de impostos (reserva, agregado por código/NCM).
+  const feBanco = produtoDb?.fiscal_entrada
   const fic = f.impostoManual
     ? { st: f.manualSt, ic: parseFloat(f.manualCredito) || 0, por: 'manual' }
-    : (fiscal.data?.encontrado ? fiscal.data : null)
+    : feBanco
+      ? { st: !!feBanco.st, ic: Number(feBanco.icms_compra_pct) || 0, por: 'banco', dt: feBanco.dt_entrada, cfop: feBanco.cfop_entrada }
+      : (fiscal.data?.encontrado ? fiscal.data : null)
   // ICMS líquido = débito na venda (alíquota interna do destino × preço)
   //              − crédito da compra (ICMS destacado na entrada × custo).
   // Para ST o débito e o crédito são zero (ICMS já pago na compra).
@@ -741,21 +780,47 @@ function Calculator() {
               </div>
             </div>
             <div className="field">
-              <label>Código de barras, código do produto ou NCM (traz o ICMS real)</label>
+              <label>Código do produto (puxa custo, peso, medidas e ICMS reais do banco)</label>
               <div className="row-inline">
                 <div className="field">
                   <input
-                    placeholder="ex: 7891153044323  ·  ou o NCM 48201000"
+                    placeholder="código interno do produto (ex: 4346)"
                     value={f.codigo}
+                    inputMode="numeric"
                     onChange={upd('codigo')}
-                    onKeyDown={(e) => { if (e.key === 'Enter') buscarImposto() }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') puxarDoBanco() }}
                   />
                 </div>
-                <button className="ghost" onClick={buscarImposto} disabled={fiscal.loading}>
-                  {fiscal.loading ? '…' : 'Buscar imposto'}
+                <button className="ghost" onClick={puxarDoBanco} disabled={dbBusy}>
+                  {dbBusy ? 'Puxando…' : 'Puxar do banco'}
                 </button>
               </div>
-              {fiscal.data && (fiscal.data.encontrado ? (
+              {dbMsg && <div className="hint" style={{ marginTop: 8 }}>{dbMsg}</div>}
+              {produtoDb && (
+                <div className="callout" style={{ margin: '10px 0 0' }}>
+                  📦 <b>{produtoDb.descricao}</b> — puxado do banco da loja.
+                  <div className="hint" style={{ marginTop: 6 }}>
+                    Custo (último): <b>{produtoDb.custo?.ultimo != null ? money(produtoDb.custo.ultimo) : '—'}</b>
+                    {produtoDb.custo?.medio != null && ` · médio ${money(produtoDb.custo.medio)}`}
+                    {produtoDb.ncm && ` · NCM ${produtoDb.ncm}`}
+                    {(produtoDb.dimensoes?.peso_emb_kg || produtoDb.dimensoes?.peso_unit_kg) &&
+                      ` · ${produtoDb.dimensoes.peso_emb_kg || produtoDb.dimensoes.peso_unit_kg} kg`}
+                  </div>
+                  {feBanco ? (
+                    feBanco.st ? (
+                      <div style={{ marginTop: 6 }}>🟢 <b>Substituição Tributária</b> na última entrada — ICMS já pago na compra, então na revenda o <b>ICMS = 0</b>.</div>
+                    ) : (
+                      <div style={{ marginTop: 6 }}>🧾 <b>Não-ST</b> — crédito real de compra <b>{feBanco.icms_compra_pct}%</b> (CFOP {feBanco.cfop_entrada}). O ICMS sai pelo estado de destino, abatendo esse crédito.</div>
+                    )
+                  ) : (
+                    <div className="hint" style={{ marginTop: 6 }}>Sem nota de entrada registrada — o ICMS não pôde ser confirmado pelo banco; use o ajuste manual abaixo.</div>
+                  )}
+                  {feBanco?.dt_entrada && (
+                    <div className="hint" style={{ marginTop: 4 }}>Baseado na nota de entrada de {new Date(feBanco.dt_entrada).toLocaleDateString('pt-BR')}. Custo, peso e medidas foram preenchidos abaixo — pode ajustar.</div>
+                  )}
+                </div>
+              )}
+              {!produtoDb && fiscal.data && (fiscal.data.encontrado ? (
                 <div className="callout" style={{ margin: '10px 0 0' }}>
                   {fiscal.data.por === 'ncm' ? (
                     fiscal.data.st ? (
