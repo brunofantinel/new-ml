@@ -18,10 +18,18 @@ const LOGISTIC_TYPES = [
 
 const pct = (v) => (v == null ? '—' : (v < 0 ? '-' : '') + Math.abs(v * 100).toFixed(1) + '%')
 
-// Margem recalculada na tela para SEMPRE fechar: preço concorrente − seu custo − taxas do ML.
-// (as colunas mostradas no card são a fonte da conta, então o total sempre bate)
+// Imposto da empresa (Lucro Presumido, comércio) — o app já desconta sozinho.
+// Federal sobre a venda: PIS 0,65 + COFINS 3 + IRPJ 1,2 + CSLL 1,08 = 5,93%.
+// ICMS fica de fora (depende de estado/produto/substituição tributária). Se o
+// contador passar o ICMS efetivo, é só somar aqui.
+const IMPOSTO_PCT = 5.93
+const imposto = (precoVenda) => ((precoVenda || 0) * IMPOSTO_PCT) / 100
+
+// Sobra recalculada na tela para SEMPRE fechar: preço − seu custo − taxas do ML − imposto.
 const margemReal = (i) =>
-  i.preco_conc != null && i.custo != null && i.custo_ml != null ? i.preco_conc - i.custo - i.custo_ml : null
+  i.preco_conc != null && i.custo != null && i.custo_ml != null
+    ? i.preco_conc - i.custo - i.custo_ml - imposto(i.preco_conc)
+    : null
 const margemRealPct = (i) => {
   const m = margemReal(i)
   return m != null && i.preco_conc ? m / i.preco_conc : null
@@ -153,9 +161,9 @@ function Vantagens() {
       <div className="eyebrow">O que você paga × o que vendem no Mercado Livre</div>
       <h1>Onde vale a pena vender no Mercado Livre</h1>
       <p className="sub">
-        Comparação entre o custo dos seus produtos e o menor preço do mesmo item no Mercado Livre, já com as taxas do
-        site (comissão e frete) descontadas — o valor final é <b>o que sobraria por venda</b>. Use “Ver preço de agora”
-        para atualizar o preço do concorrente. Dados de {db.data_pesquisa}.
+        Comparação entre o custo dos seus produtos e o menor preço do mesmo item no Mercado Livre, já descontando as
+        taxas do site (comissão e frete) e o imposto federal do Lucro Presumido — o valor final é <b>o que sobraria por
+        venda</b>. Use “Ver preço de agora” para atualizar o preço do concorrente. Dados de {db.data_pesquisa}.
       </p>
 
       <div className="tiles">
@@ -215,6 +223,7 @@ function Vantagens() {
                 {item.frete > 0 && (
                   <div className="brow sub"><span className="k">↳ frete que você paga</span><span className="v">{money(item.frete)}</span></div>
                 )}
+                <div className="brow"><span className="k">Imposto (Lucro Presumido {IMPOSTO_PCT}%)</span><span className="v">− {money(imposto(item.preco_conc))}</span></div>
                 <div className="brow total">
                   <span className="k">Sobra pra você</span>
                   <span className={'v ' + (margemReal(item) >= 0 ? 'pos' : 'neg')}>{money(margemReal(item))} · {pct(margemRealPct(item))}</span>
@@ -226,7 +235,7 @@ function Vantagens() {
                   {lv.data.price_now == null ? (
                     <>⚠️ <b>Agora:</b> ninguém está vendendo esse item no momento.</>
                   ) : (
-                    <><b>Preço de hoje:</b> {money(lv.data.price_now)} no ML → sobrariam <b>{money(lv.data.margem_rs)}</b> ({pct(lv.data.margem_pct)})</>
+                    <><b>Preço de hoje:</b> {money(lv.data.price_now)} no ML → sobrariam <b>{money(lv.data.margem_rs - imposto(lv.data.price_now))}</b> ({pct((lv.data.margem_rs - imposto(lv.data.price_now)) / lv.data.price_now)})</>
                   )}
                 </div>
               )}
@@ -251,8 +260,9 @@ function Vantagens() {
       )}
 
       <footer>
-        A “sobra pra você” já tira a comissão e o frete do Mercado Livre. Ainda não estão na conta: embalagem, imposto
-        e a taxa de quando o cliente parcela. “Ver preço de agora” consulta o valor do produto no site na hora.
+        A “sobra pra você” já desconta a comissão e o frete do Mercado Livre e o imposto federal do Lucro Presumido
+        ({IMPOSTO_PCT}%: PIS, COFINS, IRPJ e CSLL). Ainda ficam de fora: ICMS, embalagem e a taxa de parcelamento.
+        “Ver preço de agora” consulta o valor do produto no site na hora.
       </footer>
     </>
   )
@@ -335,7 +345,8 @@ function Calculator() {
   const custo = parseFloat(f.custo) || 0
   const comissao = res?.commission_total ?? 0
   const frete = res?.freight ?? 0
-  const lucro = res ? preco - custo - comissao - frete : 0
+  const impostoVal = res ? imposto(preco) : 0
+  const lucro = res ? preco - custo - comissao - frete - impostoVal : 0
   const lucroPct = res && preco > 0 ? (lucro / preco) * 100 : 0
 
   return (
@@ -467,6 +478,7 @@ function Calculator() {
                     <span className="k">− Frete que você paga</span>
                     <span className="v">{res.freight == null ? '?' : '− ' + money(res.freight)}</span>
                   </div>
+                  <div className="brow"><span className="k">− Imposto (Lucro Presumido {IMPOSTO_PCT}%)</span><span className="v">− {money(impostoVal)}</span></div>
                   <div className="brow total"><span className="k">= Sobra no seu bolso</span><span className="v">{money(lucro)}</span></div>
                 </div>
                 {res.percentage_fee != null && (
@@ -484,8 +496,9 @@ function Calculator() {
       </div>
 
       <div className="callout">
-        <b>Como funciona:</b> a comissão e o frete vêm direto do Mercado Livre, com os valores reais da sua conta.
-        Ainda não entram na conta: a embalagem, o imposto da sua empresa e a taxa de quando o cliente paga parcelado.
+        <b>Como funciona:</b> a comissão e o frete vêm direto do Mercado Livre, com os valores reais da sua conta, e o
+        imposto federal do Lucro Presumido ({IMPOSTO_PCT}%) já é descontado automaticamente. Ainda ficam de fora: o
+        ICMS, a embalagem e a taxa de quando o cliente paga parcelado.
       </div>
 
       <footer>
