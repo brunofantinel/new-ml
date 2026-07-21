@@ -1,0 +1,5 @@
+# resultados da extração (regeráveis com os scripts). O mapa enxuto que o app
+# usa fica versionado em calculadora-ml/public/impostos_app.json.
+saida/
+__pycache__/
+*.pyc

@@ -113,9 +113,18 @@ Em qualquer opção, o app casaria o produto da nota com o estoque pelo **GTIN
 ## 5. Status atual
 
 - [x] Impostos federais do Lucro Presumido (5,93%) — calculados automaticamente.
-- [ ] ICMS por produto — **pendente**, depende de ligar o app na base das NF-e de
-  entrada (este documento).
+- [x] **ICMS por produto — IMPLEMENTADO** (opção B: conexão direta no Firebird do
+  AUTOCOM/MGWare). O extrator lê as NF-e de entrada (`SAC_REC`/`SAC_RECI`), detecta
+  ST e gera o mapa `impostos_app.json`. Na Calculadora, informar o código de barras
+  (ou código do produto) traz o ICMS real: **0 se ST**, alíquota interna se não-ST.
+  Pipeline em `../impostos/` (ver `impostos/README.md`).
 - [ ] DIFAL interestadual — evolução futura, depois do ST.
+
+### Números reais da base (extração de 2026-07)
+- 63.461 produtos com nota de entrada · **96,2% com GTIN válido**.
+- **~12% ST** (ICMS revenda = 0) na última compra; ~16,6% já foram ST alguma vez.
+- **~88% NÃO-ST** → pagam ICMS normal (geralmente 17%). Ou seja, ao contrário do que
+  se supunha, a maioria dos itens desta loja tem ICMS relevante na revenda.
 
 > Antes de tratar qualquer número como definitivo, confirmar as alíquotas com o
 > contador. O app é ferramenta de estimativa/decisão, não substitui a apuração fiscal.

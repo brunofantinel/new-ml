@@ -275,12 +275,14 @@ function Calculator() {
     categoryName: '',
     preco: '49.90',
     custo: '15.00',
+    codigo: '',
     listingType: 'gold_special',
     logisticType: 'cross_docking',
     alt: '', larg: '', comp: '',
     pesoKg: '0.3',
     freteGratis: true,
   })
+  const [fiscal, setFiscal] = useState({ loading: false, data: null, err: null })
   const [cats, setCats] = useState([])
   const [predicting, setPredicting] = useState(false)
   const [comp, setComp] = useState(null)
@@ -315,6 +317,18 @@ function Calculator() {
     setCats([])
   }
 
+  async function buscarImposto() {
+    const cod = f.codigo.trim()
+    if (!cod) return
+    setFiscal({ loading: true, data: null, err: null })
+    try {
+      const d = await fetch('/api/imposto?cod=' + encodeURIComponent(cod)).then((r) => r.json())
+      setFiscal({ loading: false, data: d, err: null })
+    } catch {
+      setFiscal({ loading: false, data: null, err: 'Não consegui consultar o imposto agora.' })
+    }
+  }
+
   async function calcular() {
     setBusy(true)
     setErr(null)
@@ -345,7 +359,11 @@ function Calculator() {
   const custo = parseFloat(f.custo) || 0
   const comissao = res?.commission_total ?? 0
   const frete = res?.freight ?? 0
-  const impostoVal = res ? imposto(preco) : 0
+  const fic = fiscal.data?.encontrado ? fiscal.data : null
+  const icmsPct = fic ? fic.icms : 0
+  const impostoFederalVal = res ? imposto(preco) : 0
+  const icmsVal = res ? (preco * icmsPct) / 100 : 0
+  const impostoVal = impostoFederalVal + icmsVal
   const lucro = res ? preco - custo - comissao - frete - impostoVal : 0
   const lucroPct = res && preco > 0 ? (lucro / preco) * 100 : 0
 
@@ -364,6 +382,44 @@ function Calculator() {
                 <label>Quanto o produto te custa (R$)</label>
                 <input type="number" step="0.01" value={f.custo} onChange={upd('custo')} />
               </div>
+            </div>
+            <div className="field">
+              <label>Código de barras ou código do produto (traz o ICMS real)</label>
+              <div className="row-inline">
+                <div className="field">
+                  <input
+                    placeholder="ex: 7891153044323"
+                    value={f.codigo}
+                    onChange={upd('codigo')}
+                    onKeyDown={(e) => { if (e.key === 'Enter') buscarImposto() }}
+                  />
+                </div>
+                <button className="ghost" onClick={buscarImposto} disabled={fiscal.loading}>
+                  {fiscal.loading ? '…' : 'Buscar imposto'}
+                </button>
+              </div>
+              {fiscal.data && (fiscal.data.encontrado ? (
+                <div className="callout" style={{ margin: '10px 0 0' }}>
+                  {fiscal.data.st ? (
+                    <>🟢 <b>{fiscal.data.descr}</b> — <b>Substituição Tributária</b>: o ICMS já foi pago na compra,
+                    então na revenda o <b>ICMS = 0</b>.</>
+                  ) : (
+                    <>🧾 <b>{fiscal.data.descr}</b> — ICMS na revenda de <b>{fiscal.data.icms}%</b>
+                    {fiscal.data.ncm ? ` (NCM ${fiscal.data.ncm})` : ''}. Já entra no cálculo abaixo.</>
+                  )}
+                  <div className="hint" style={{ marginTop: 6 }}>
+                    Origem: notas de entrada do seu ERP{fiscal.data.por === 'cod' ? ' (achado pelo código interno)' : ''}.
+                    Venda interestadual a consumidor final ainda pode ter DIFAL — confirme com o contador.
+                  </div>
+                </div>
+              ) : (
+                <div className="hint" style={{ marginTop: 8 }}>
+                  {fiscal.data.erro === 'mapa_ausente'
+                    ? 'A base de impostos ainda não foi gerada (rode o extrator do ERP).'
+                    : 'Não achei esse código na base de notas de entrada. O cálculo segue só com o imposto federal.'}
+                </div>
+              ))}
+              {fiscal.err && <div className="hint" style={{ marginTop: 8 }}>{fiscal.err}</div>}
             </div>
           </div>
 
@@ -478,7 +534,11 @@ function Calculator() {
                     <span className="k">− Frete que você paga</span>
                     <span className="v">{res.freight == null ? '?' : '− ' + money(res.freight)}</span>
                   </div>
-                  <div className="brow"><span className="k">− Imposto (Lucro Presumido {IMPOSTO_PCT}%)</span><span className="v">− {money(impostoVal)}</span></div>
+                  <div className="brow"><span className="k">− Imposto federal (Lucro Presumido {IMPOSTO_PCT}%)</span><span className="v">− {money(impostoFederalVal)}</span></div>
+                  <div className="brow">
+                    <span className="k">− ICMS na revenda{fic ? (fic.st ? ' · ST (pago na compra)' : ` (${icmsPct}%)`) : ''}</span>
+                    <span className="v">{fic ? '− ' + money(icmsVal) : 'não incluído'}</span>
+                  </div>
                   <div className="brow total"><span className="k">= Sobra no seu bolso</span><span className="v">{money(lucro)}</span></div>
                 </div>
                 {res.percentage_fee != null && (
@@ -497,8 +557,9 @@ function Calculator() {
 
       <div className="callout">
         <b>Como funciona:</b> a comissão e o frete vêm direto do Mercado Livre, com os valores reais da sua conta, e o
-        imposto federal do Lucro Presumido ({IMPOSTO_PCT}%) já é descontado automaticamente. Ainda ficam de fora: o
-        ICMS, a embalagem e a taxa de quando o cliente paga parcelado.
+        imposto federal do Lucro Presumido ({IMPOSTO_PCT}%) já é descontado automaticamente. Informando o código do
+        produto, o <b>ICMS</b> também entra: é <b>zero</b> nos itens com Substituição Tributária (já pago na compra) e a
+        alíquota real nos demais. Ainda ficam de fora: o DIFAL interestadual, a embalagem e a taxa de parcelamento.
       </div>
 
       <footer>
