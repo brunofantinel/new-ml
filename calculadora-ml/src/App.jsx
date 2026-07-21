@@ -153,9 +153,9 @@ function Vantagens() {
       <div className="eyebrow">O que você paga × o que vendem no Mercado Livre</div>
       <h1>Onde vale a pena vender no Mercado Livre</h1>
       <p className="sub">
-        Comparei o que cada produto te custa com o preço mais barato do mesmo item no Mercado Livre — já tirando
-        tudo o que o site desconta (comissão e frete). Assim você vê <b>quanto sobraria no seu bolso</b> em cada venda.
-        Toque em “Ver preço de agora” para conferir o valor de hoje. Levantamento de {db.data_pesquisa}.
+        Comparação entre o custo dos seus produtos e o menor preço do mesmo item no Mercado Livre, já com as taxas do
+        site (comissão e frete) descontadas — o valor final é <b>o que sobraria por venda</b>. Use “Ver preço de agora”
+        para atualizar o preço do concorrente. Dados de {db.data_pesquisa}.
       </p>
 
       <div className="tiles">
