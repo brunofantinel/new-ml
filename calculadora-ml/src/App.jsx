@@ -9,11 +9,11 @@ const LISTING_TYPES = [
 ]
 
 const LOGISTIC_TYPES = [
-  { id: 'cross_docking', label: 'Coleta' },
-  { id: 'xd_drop_off', label: 'Agência (Places)' },
-  { id: 'drop_off', label: 'Correios / Drop off' },
-  { id: 'fulfillment', label: 'Full' },
-  { id: 'self_service', label: 'Flex' },
+  { id: 'cross_docking', label: 'Coleta', desc: 'O Mercado Livre passa no seu endereço e recolhe os pacotes já prontos e etiquetados. Bom pra quem envia bastante de uma vez.' },
+  { id: 'xd_drop_off', label: 'Agência (Places)', desc: 'Você leva os pacotes até uma agência ou ponto do Mercado Livre perto de você (Mercado Livre Places).' },
+  { id: 'drop_off', label: 'Correios / Drop off', desc: 'Você mesmo posta os pacotes nos Correios ou num ponto de entrega credenciado.' },
+  { id: 'fulfillment', label: 'Full', desc: 'Você manda seu estoque pro galpão do Mercado Livre; eles guardam, embalam e enviam por você. Entrega mais rápida e o anúncio aparece melhor, mas tem custo de armazenagem.' },
+  { id: 'self_service', label: 'Flex', desc: 'Você (ou um motoboy) entrega no mesmo dia na sua região. O Mercado Livre te paga um valor por cada entrega.' },
 ]
 
 const pct = (v) => (v == null ? '—' : (v < 0 ? '-' : '') + Math.abs(v * 100).toFixed(1) + '%')
@@ -380,6 +380,7 @@ function Calculator() {
               <select value={f.logisticType} onChange={upd('logisticType')}>
                 {LOGISTIC_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
               </select>
+              <div className="hint">{LOGISTIC_TYPES.find((t) => t.id === f.logisticType)?.desc}</div>
             </div>
             <div className="field">
               <label>Peso da encomenda pronta (kg)</label>
