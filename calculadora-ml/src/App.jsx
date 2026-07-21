@@ -68,11 +68,12 @@ export default function App() {
             <>
               <div className="callout" style={{ marginTop: 0 }}>
                 {status.seller_connected ? (
-                  <><b>Vendedor conectado</b> ✓ — o preço de concorrente (buy box) fica disponível.</>
+                  <><b>Conta conectada</b> ✓ — na busca de produto (passo 2) eu já mostro por quanto o concorrente está vendendo.</>
                 ) : (
                   <>
-                    <b>Preço de concorrente:</b> conecte sua conta de vendedor para tentar liberar o buy box.{' '}
-                    <a href="/api/auth/login">Conectar vendedor</a>
+                    <b>Dica:</b> na busca de produto (passo 2) eu mostro o preço do concorrente no ML.{' '}
+                    Conectar sua conta melhora a precisão.{' '}
+                    <a href="/api/auth/login">Conectar minha conta</a>
                   </>
                 )}
               </div>
@@ -263,6 +264,7 @@ function Calculator() {
   })
   const [cats, setCats] = useState([])
   const [predicting, setPredicting] = useState(false)
+  const [comp, setComp] = useState(null)
   const [res, setRes] = useState(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
@@ -273,11 +275,18 @@ function Calculator() {
     if (!f.titulo.trim()) return
     setPredicting(true)
     setCats([])
+    setComp(null)
     try {
-      const d = await fetch('/api/predict-category?q=' + encodeURIComponent(f.titulo)).then((r) => r.json())
-      setCats(Array.isArray(d) ? d : [])
+      // busca a categoria e o preço do concorrente ao mesmo tempo
+      const [cd, compD] = await Promise.all([
+        fetch('/api/predict-category?q=' + encodeURIComponent(f.titulo)).then((r) => r.json()).catch(() => []),
+        fetch('/api/competitor?q=' + encodeURIComponent(f.titulo)).then((r) => r.json()).catch(() => null),
+      ])
+      setCats(Array.isArray(cd) ? cd : [])
+      setComp(compD)
     } catch {
       setCats([])
+      setComp(null)
     }
     setPredicting(false)
   }
@@ -341,7 +350,7 @@ function Calculator() {
           <div className="card">
             <h2><span className="n">2</span> Categoria (define a comissão real)</h2>
             <div className="field">
-              <label>Descubra pela descrição do produto</label>
+              <label>Descubra a categoria e o preço do concorrente</label>
               <div className="row-inline">
                 <div className="field">
                   <input placeholder="ex: mochila escolar 34 litros" value={f.titulo} onChange={upd('titulo')} />
@@ -350,6 +359,28 @@ function Calculator() {
                   {predicting ? '…' : 'Buscar'}
                 </button>
               </div>
+
+              {comp && (comp.matched ? (
+                <div className="callout" style={{ margin: '10px 0 0' }}>
+                  💰 <b>No Mercado Livre</b> o mais barato hoje é <b>{money(comp.price)}</b>
+                  {comp.n_vend ? ` (${comp.n_vend} loja${comp.n_vend === 1 ? '' : 's'} vendendo)` : ''}.
+                  <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button className="ghost" onClick={() => setF({ ...f, preco: String(comp.price) })}>Usar esse preço</button>
+                    {comp.category_id && (
+                      <button className="ghost" onClick={() => setF({ ...f, categoryId: comp.category_id, categoryName: 'mesma do concorrente' })}>Usar a categoria</button>
+                    )}
+                    {comp.url && <a className="ghost link" href={comp.url} target="_blank" rel="noreferrer">Ver no ML ▸</a>}
+                  </div>
+                  <div className="hint" style={{ marginTop: 6 }}>Produto no ML: {comp.name}</div>
+                </div>
+              ) : (
+                <div className="hint" style={{ marginTop: 8 }}>
+                  {comp.reason === 'sem_preco'
+                    ? `Achei “${comp.name}” no ML, mas ninguém está vendendo esse item agora.`
+                    : 'Não achei esse produto no Mercado Livre para comparar o preço.'}
+                </div>
+              ))}
+
               {cats.map((c) => (
                 <button key={c.category_id} className="cat-opt" onClick={() => pickCat(c)}>
                   <b>{c.category_name}</b> — <code>{c.category_id}</code>
