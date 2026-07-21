@@ -18,6 +18,15 @@ const LOGISTIC_TYPES = [
 
 const pct = (v) => (v == null ? '—' : (v < 0 ? '-' : '') + Math.abs(v * 100).toFixed(1) + '%')
 
+// Margem recalculada na tela para SEMPRE fechar: preço concorrente − seu custo − taxas do ML.
+// (as colunas mostradas no card são a fonte da conta, então o total sempre bate)
+const margemReal = (i) =>
+  i.preco_conc != null && i.custo != null && i.custo_ml != null ? i.preco_conc - i.custo - i.custo_ml : null
+const margemRealPct = (i) => {
+  const m = margemReal(i)
+  return m != null && i.preco_conc ? m / i.preco_conc : null
+}
+
 const TIER_INFO = {
   competir: { label: 'Pode competir', cls: 'good' },
   conferir: { label: 'Conferir antes', cls: 'warn' },
@@ -114,8 +123,18 @@ function Vantagens() {
     const t = q.trim().toLowerCase()
     itens = itens.filter((i) => `${i.produto} ${i.marca} ${i.produto_ml} ${i.cod}`.toLowerCase().includes(t))
   }
-  itens = [...itens].sort((a, b) => (b[sort] ?? -1e12) - (a[sort] ?? -1e12))
+  const sortVal = (i) => {
+    if (sort === 'margem_rs') return margemReal(i) ?? -1e12
+    if (sort === 'margem_pct') return margemRealPct(i) ?? -1e12
+    return i[sort] ?? -1e12
+  }
+  itens = [...itens].sort((a, b) => sortVal(b) - sortVal(a))
   const shown = itens.slice(0, limit)
+
+  // soma da margem (recalculada) dos que podem competir — bate com os cards
+  const somaCompetir = db.itens
+    .filter((i) => i.tier === 'competir')
+    .reduce((s, i) => s + (margemReal(i) ?? 0), 0)
 
   async function atualizar(item) {
     setLive((s) => ({ ...s, [item.cod]: { loading: true } }))
@@ -141,7 +160,7 @@ function Vantagens() {
         <div className="tile good"><b>{db.contagem.competir}</b><span>podem competir</span></div>
         <div className="tile warn"><b>{db.contagem.conferir}</b><span>conferir antes</span></div>
         <div className="tile bad"><b>{db.contagem.apertado}</b><span>apertado / não fecha</span></div>
-        <div className="tile"><b>{money(db.soma_margem_competir_rs)}</b><span>margem somada (podem competir)</span></div>
+        <div className="tile"><b>{money(somaCompetir)}</b><span>margem somada (podem competir)</span></div>
       </div>
 
       <div className="filters card">
@@ -187,7 +206,7 @@ function Vantagens() {
                 <div className="brow"><span className="k">− Taxas do ML</span><span className="v">− {money(item.custo_ml)}</span></div>
                 <div className="brow total">
                   <span className="k">Margem se igualar</span>
-                  <span className={'v ' + (item.margem_rs >= 0 ? 'pos' : 'neg')}>{money(item.margem_rs)} · {pct(item.margem_pct)}</span>
+                  <span className={'v ' + (margemReal(item) >= 0 ? 'pos' : 'neg')}>{money(margemReal(item))} · {pct(margemRealPct(item))}</span>
                 </div>
               </div>
 
