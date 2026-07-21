@@ -18,6 +18,16 @@ const LOGISTIC_TYPES = [
 
 const pct = (v) => (v == null ? '—' : (v < 0 ? '-' : '') + Math.abs(v * 100).toFixed(1) + '%')
 
+// Nível de reputação do vendedor no Mercado Livre (termômetro verde→vermelho).
+const NIVEL = {
+  '5_green': { txt: 'Excelente', cor: '#00a650' },
+  '4_light_green': { txt: 'Bom', cor: '#7dd956' },
+  '3_yellow': { txt: 'Regular', cor: '#e6b800' },
+  '2_orange': { txt: 'Ruim', cor: '#ff7733' },
+  '1_red': { txt: 'Ruim', cor: '#e64545' },
+}
+const nivelInfo = (lvl) => NIVEL[lvl] || { txt: 'Novo / sem histórico', cor: '#bbb' }
+
 // Imposto da empresa (Lucro Presumido, comércio) — o app já desconta sozinho.
 // Federal sobre a venda: PIS 0,65 + COFINS 3 + IRPJ 1,2 + CSLL 1,08 = 5,93%.
 // ICMS fica de fora (depende de estado/produto/substituição tributária). Se o
@@ -71,11 +81,14 @@ export default function App() {
     <div className="wrap">
       <nav className="tabs">
         <button className={view === 'calc' ? 'tab on' : 'tab'} onClick={() => setView('calc')}>Calculadora</button>
+        <button className={view === 'mercado' ? 'tab on' : 'tab'} onClick={() => setView('mercado')}>Pesquisa de mercado</button>
         <button className={view === 'vantagens' ? 'tab on' : 'tab'} onClick={() => setView('vantagens')}>Vantagens no ML</button>
       </nav>
 
       {view === 'vantagens' ? (
         <Vantagens />
+      ) : view === 'mercado' ? (
+        <Mercado />
       ) : (
         <>
           <div className="eyebrow">Taxas reais · API oficial do Mercado Livre</div>
@@ -278,6 +291,183 @@ function Vantagens() {
         A “sobra pra você” já desconta a comissão e o frete do Mercado Livre e o imposto federal do Lucro Presumido
         ({IMPOSTO_PCT}%: PIS, COFINS, IRPJ e CSLL). Ainda ficam de fora: ICMS, embalagem e a taxa de parcelamento.
         “Ver preço de agora” consulta o valor do produto no site na hora.
+      </footer>
+    </>
+  )
+}
+
+function Nivel({ level }) {
+  const n = nivelInfo(level)
+  return (
+    <span className="niv">
+      <span className="niv-dot" style={{ background: n.cor }} />
+      {n.txt}
+    </span>
+  )
+}
+
+function Mercado() {
+  const [q, setQ] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [data, setData] = useState(null)
+  const [msg, setMsg] = useState(null)
+
+  async function buscar(termo) {
+    const query = (termo ?? q).trim()
+    if (!query) return
+    setBusy(true); setMsg(null); setData(null)
+    try {
+      const d = await fetch('/api/mercado?q=' + encodeURIComponent(query)).then((r) => r.json())
+      if (!d.matched) {
+        setMsg(d.reason === 'sem_resultado'
+          ? `Não achei "${query}" no catálogo do Mercado Livre.`
+          : d.reason === 'sem_vendedor'
+            ? 'Achei o produto, mas ninguém está vendendo agora.'
+            : 'Não consegui pesquisar agora.')
+        if (d.product) setData(d)
+      } else {
+        setData(d)
+      }
+    } catch {
+      setMsg('Não consegui pesquisar agora. Tente de novo.')
+    }
+    setBusy(false)
+  }
+
+  const maxVendas = data?.top_vendedores?.[0]?.vendas_hist || 0
+
+  return (
+    <>
+      <div className="eyebrow">Quem vende, por quanto e quem é o maior</div>
+      <h1>Pesquisa de mercado no Mercado Livre</h1>
+      <p className="sub">
+        Digite um produto e veja <b>quem está vendendo</b>, a <b>faixa de preço</b>, quem está{' '}
+        <b>ganhando as vendas</b> (buy box) e <b>quem é a maior loja</b> concorrente.
+      </p>
+
+      <div className="card">
+        <div className="row-inline">
+          <div className="field" style={{ flex: 1 }}>
+            <input
+              placeholder="ex: caneta bic cristal, mochila kipling, calculadora casio fx-82"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') buscar() }}
+            />
+          </div>
+          <button className="primary" onClick={() => buscar()} disabled={busy}>
+            {busy ? 'Pesquisando…' : 'Pesquisar'}
+          </button>
+        </div>
+        {msg && <div className="hint" style={{ marginTop: 10 }}>{msg}</div>}
+      </div>
+
+      {data?.product && (
+        <>
+          <div className="card mkt-prod">
+            {data.product.thumbnail && <img src={data.product.thumbnail} alt="" className="mkt-thumb" />}
+            <div style={{ flex: 1 }}>
+              <div className="mkt-name">{data.product.name}</div>
+              <div className="hint">{data.n_vendedores} vendedor{data.n_vendedores === 1 ? '' : 'es'} anunciando este produto</div>
+              <a className="ghost link" href={data.product.permalink} target="_blank" rel="noreferrer">Abrir no Mercado Livre ▸</a>
+            </div>
+          </div>
+
+          {data.n_vendedores > 0 ? (
+            <>
+              <div className="tiles">
+                <div className="tile good"><b>{money(data.preco.min)}</b><span>menor preço</span></div>
+                <div className="tile"><b>{money(data.preco.mediana)}</b><span>preço típico (mediana)</span></div>
+                <div className="tile bad"><b>{money(data.preco.max)}</b><span>maior preço</span></div>
+                <div className="tile"><b>{data.n_vendedores}</b><span>concorrentes</span></div>
+              </div>
+
+              {data.winner && (
+                <div className="card">
+                  <h2>🏆 Quem está ganhando as vendas (buy box)</h2>
+                  <div className="mkt-winner">
+                    <div>
+                      <div className="mkt-seller">{data.winner.nickname}{data.winner.selo && <span className="pill">{data.winner.selo}</span>}</div>
+                      <div className="hint"><Nivel level={data.winner.level} /> · {data.winner.uf}{data.winner.cidade ? ` · ${data.winner.cidade}` : ''} · {data.winner.vendas_hist != null ? `${data.winner.vendas_hist.toLocaleString('pt-BR')} vendas na loja` : 'sem histórico'}</div>
+                    </div>
+                    <div className="mkt-price">
+                      <b>{money(data.winner.price)}</b>
+                      <span className="hint">{data.winner.tipo}{data.winner.free_shipping ? ' · frete grátis' : ''}</span>
+                    </div>
+                  </div>
+                  <div className="hint" style={{ marginTop: 8 }}>
+                    É o anúncio que o ML mostra em destaque — costuma concentrar a maioria das vendas do produto.
+                  </div>
+                </div>
+              )}
+
+              {data.top_vendedores?.length > 0 && (
+                <div className="card">
+                  <h2>📊 Quem vende mais (maiores lojas)</h2>
+                  <div className="mkt-bars">
+                    {data.top_vendedores.map((v) => (
+                      <div className="mkt-bar-row" key={v.seller_id}>
+                        <div className="mkt-bar-lbl">
+                          {v.nickname} <Nivel level={v.level} />
+                        </div>
+                        <div className="mkt-bar-track">
+                          <div className="mkt-bar-fill" style={{ width: (maxVendas ? Math.max(4, (v.vendas_hist / maxVendas) * 100) : 4) + '%' }} />
+                          <span className="mkt-bar-val">{(v.vendas_hist ?? 0).toLocaleString('pt-BR')} vendas · {money(v.price)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="hint" style={{ marginTop: 8 }}>
+                    “Vendas” é o total histórico da loja (todos os produtos) — a API do Mercado Livre não
+                    libera a quantidade vendida de cada anúncio. Serve para medir o tamanho do concorrente.
+                  </div>
+                </div>
+              )}
+
+              <div className="card">
+                <h2>🧾 Todos os anúncios</h2>
+                <div className="hint" style={{ marginBottom: 10 }}>
+                  {data.resumo.oficiais} loja{data.resumo.oficiais === 1 ? '' : 's'} oficial ·
+                  {' '}{data.resumo.frete_gratis} com frete grátis ·
+                  {' '}{data.resumo.premium} anúncio{data.resumo.premium === 1 ? '' : 's'} Premium ·
+                  {' '}estados: {Object.entries(data.resumo.por_estado).sort((a, b) => b[1] - a[1]).map(([uf, n]) => `${uf} (${n})`).join(', ')}
+                </div>
+                <div className="mkt-list">
+                  {data.anuncios.map((a) => (
+                    <div className={'mkt-item' + (a.winner ? ' win' : '')} key={a.item_id}>
+                      <div className="mkt-item-price">{money(a.price)}</div>
+                      <div className="mkt-item-sel">
+                        <div>{a.nickname} {a.winner && <span className="pill">buy box</span>} {a.oficial && <span className="pill">oficial</span>}</div>
+                        <div className="hint"><Nivel level={a.level} /> · {a.uf} · {a.tipo}{a.free_shipping ? ' · frete grátis' : ''}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+            </>
+          ) : (
+            <div className="card">
+              <div className="hint">
+                Achei <b>{data.product.name}</b> no catálogo, mas não há vendedor ativo nesse anúncio agora —
+                costuma acontecer quando o termo é muito genérico. Tente o nome específico (marca + modelo).
+              </div>
+            </div>
+          )}
+          {data.outras_opcoes?.length > 0 && (
+            <div className="hint" style={{ marginTop: 4 }}>
+              Não é esse? Tente:{' '}
+              {data.outras_opcoes.map((o) => (
+                <button key={o.id} className="ghost" style={{ margin: '2px 4px' }} onClick={() => { setQ(o.name); buscar(o.name) }}>{o.name}</button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      <footer>
+        Dados do catálogo do Mercado Livre, buscados na hora. A API pública não expõe a quantidade vendida por
+        anúncio; por isso o tamanho do concorrente é medido pelo total de vendas da loja.
       </footer>
     </>
   )

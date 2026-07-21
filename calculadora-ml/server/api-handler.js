@@ -1,6 +1,7 @@
 import { authStatus, getFees, predictCategory, buildAuthUrl, exchangeCode, getCatalogLive } from './ml.js'
 import { findCompetitor } from './catalog.js'
 import { lookupImposto } from './impostos.js'
+import { pesquisarMercado } from './mercado.js'
 
 // Handler compartilhado das rotas /api/* e /callback.
 // Usado tanto pelo dev-server do Vite (vite-plugin-api.js) quanto pelo
@@ -31,6 +32,7 @@ export async function handleApi(req, res) {
     if (path === '/api/competitor') { json(res, await findCompetitor(url.searchParams.get('q') || '')); return true }
     if (path === '/api/fees') { json(res, await getFees(Object.fromEntries(url.searchParams))); return true }
     if (path === '/api/imposto') { json(res, lookupImposto(url.searchParams.get('cod') || '')); return true }
+    if (path === '/api/mercado') { json(res, await pesquisarMercado(url.searchParams.get('q') || '')); return true }
     if (path === '/api/vantagem/live') {
       const catalogId = (url.searchParams.get('catalog_id') || '').trim()
       const custo = Number(url.searchParams.get('custo') || 0)
