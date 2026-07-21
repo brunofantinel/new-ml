@@ -1034,29 +1034,29 @@ function Calculator() {
                 </div>
                 <div>
                   <div className="brow"><span className="k">Você vende por</span><span className="v">{money(preco)}</span></div>
-                  <div className="brow"><span className="k">− Quanto te custou</span><span className="v">− {money(custo)}</span></div>
-                  <div className="brow"><span className="k">− Comissão do ML</span><span className="v">− {money(comissao)}</span></div>
-                  <div className="brow sub"><span className="k">dentro dela, custo fixo</span><span className="v">{res.fixed_fee > 0 ? money(res.fixed_fee) : '—'}</span></div>
+                  <div className="brow"><span className="k">− Quanto o produto te custou</span><span className="v">− {money(custo)}</span></div>
+                  <div className="brow"><span className="k">− Comissão do Mercado Livre</span><span className="v">− {money(comissao)}</span></div>
+                  <div className="brow sub"><span className="k">↳ dentro dela, taxa fixa por venda</span><span className="v">{res.fixed_fee > 0 ? money(res.fixed_fee) : '—'}</span></div>
                   <div className="brow">
-                    <span className="k">− Frete que você paga</span>
+                    <span className="k">− Frete que sai do seu bolso</span>
                     <span className="v">{res.freight == null ? '?' : '− ' + money(res.freight)}</span>
                   </div>
-                  <div className="brow"><span className="k">− Imposto federal (Lucro Presumido {IMPOSTO_PCT}%)</span><span className="v">− {money(impostoFederalVal)}</span></div>
+                  <div className="brow"><span className="k">− Impostos do governo (federais, {IMPOSTO_PCT}%)</span><span className="v">− {money(impostoFederalVal)}</span></div>
                   {fic && fic.st ? (
-                    <div className="brow"><span className="k">− ICMS na revenda · ST (pago na compra)</span><span className="v">− {money(0)}</span></div>
+                    <div className="brow"><span className="k">− ICMS (imposto do estado) — já veio pago na compra</span><span className="v">− {money(0)}</span></div>
                   ) : fic ? (
                     <>
-                      <div className="brow"><span className="k">− ICMS líquido{interestadual ? ' (com DIFAL)' : ''}</span><span className="v">− {money(icmsVal)}</span></div>
-                      <div className="brow sub"><span className="k">↳ débito na venda ({internaDest}% p/ {f.ufDestino})</span><span className="v">{money(icmsDebito)}</span></div>
-                      <div className="brow sub"><span className="k">↳ crédito da compra ({fic.ic || 0}% do custo)</span><span className="v">− {money(icmsCredito)}</span></div>
+                      <div className="brow"><span className="k">− ICMS (imposto do estado){interestadual ? ', venda pra fora do RS' : ''}</span><span className="v">− {money(icmsVal)}</span></div>
+                      <div className="brow sub"><span className="k">↳ o estado cobra na venda ({internaDest}% p/ {f.ufDestino})</span><span className="v">{money(icmsDebito)}</span></div>
+                      <div className="brow sub"><span className="k">↳ menos o que você já pagou na compra ({fic.ic || 0}%)</span><span className="v">− {money(icmsCredito)}</span></div>
                     </>
                   ) : (
-                    <div className="brow"><span className="k">− ICMS na revenda</span><span className="v">não incluído</span></div>
+                    <div className="brow"><span className="k">− ICMS (imposto do estado)</span><span className="v">não incluído</span></div>
                   )}
                   <div className="brow total"><span className="k">= Sobra no seu bolso</span><span className="v">{money(lucro)}</span></div>
                 </div>
                 {res.percentage_fee != null && (
-                  <div className="hint" style={{ marginTop: 10 }}>Comissão de {res.percentage_fee}% nesta categoria.</div>
+                  <div className="hint" style={{ marginTop: 10 }}>O Mercado Livre fica com {res.percentage_fee}% de comissão nessa categoria.</div>
                 )}
                 {res.freight == null && (
                   <div className="callout warn" style={{ marginTop: 12 }}>
@@ -1122,11 +1122,10 @@ function Calculator() {
       </div>
 
       <div className="callout">
-        <b>Como funciona:</b> a comissão e o frete vêm direto do Mercado Livre, com os valores reais da sua conta, e o
-        imposto federal do Lucro Presumido ({IMPOSTO_PCT}%) já é descontado automaticamente. Informando o código do
-        produto, o <b>ICMS</b> também entra: <b>zero</b> nos itens com Substituição Tributária (já pago na compra); nos
-        demais, é o <b>ICMS líquido</b> = débito da venda (alíquota interna do estado de destino, com o <b>DIFAL</b> já
-        embutido) menos o <b>crédito</b> do ICMS pago na compra. Ainda ficam de fora: embalagem e a taxa de parcelamento.
+        <b>Como funciona:</b> a comissão e o frete vêm direto do Mercado Livre, com os valores reais da sua conta, e os
+        impostos federais ({IMPOSTO_PCT}%) já saem automaticamente. Puxando o produto do banco, o <b>ICMS</b> (o imposto
+        do estado) também entra: dá <b>zero</b> quando ele já veio pago na compra; nos outros, você paga o que o estado
+        cobra na venda <b>menos o que já pagou na compra</b>. Ainda ficam de fora: a embalagem e a taxa de parcelamento.
       </div>
 
       <footer>
