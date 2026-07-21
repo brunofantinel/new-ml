@@ -115,10 +115,20 @@ Em qualquer opção, o app casaria o produto da nota com o estoque pelo **GTIN
 - [x] Impostos federais do Lucro Presumido (5,93%) — calculados automaticamente.
 - [x] **ICMS por produto — IMPLEMENTADO** (opção B: conexão direta no Firebird do
   AUTOCOM/MGWare). O extrator lê as NF-e de entrada (`SAC_REC`/`SAC_RECI`), detecta
-  ST e gera o mapa `impostos_app.json`. Na Calculadora, informar o código de barras
-  (ou código do produto) traz o ICMS real: **0 se ST**, alíquota interna se não-ST.
+  ST e gera o mapa `impostos_app.json` (por produto: `st` e `ic` = ICMS pago na
+  compra). Na Calculadora, informar o código de barras traz o ICMS real.
   Pipeline em `../impostos/` (ver `impostos/README.md`).
-- [ ] DIFAL interestadual — evolução futura, depois do ST.
+- [x] **DIFAL + crédito de entrada — IMPLEMENTADO (v2)**. A Calculadora tem um
+  seletor de **estado de destino** e calcula o **ICMS líquido**:
+  ```
+  ICMS_liquido = max(0, aliquota_interna_destino × preço − ICMS_compra × custo)
+  ```
+  Para venda a consumidor final, o ICMS total da operação (próprio + DIFAL) equivale
+  à alíquota interna do estado de destino — por isso a tabela `ICMS_UF` em `App.jsx`
+  já embute o DIFAL. O crédito é o ICMS destacado na entrada (`ic`). ST → 0.
+
+> Ainda aproximado: as alíquotas internas por UF (`ICMS_UF`) são valores de 2025 e
+> devem ser confirmadas com o contador; o FCP está embutido só onde é padrão.
 
 ### Números reais da base (extração de 2026-07)
 - 63.461 produtos com nota de entrada · **96,2% com GTIN válido**.

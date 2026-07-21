@@ -15,7 +15,8 @@ for r in completo["por_cod_prod"].values():
         continue
     slim = {
         "st": r["st"],
-        "icms": r["icms_venda_pct"],   # % de ICMS na revenda (0 se ST)
+        "icms": r["icms_venda_pct"],   # % ICMS interno configurado (info/fallback)
+        "ic": r["icms_compra_pct"],    # % ICMS destacado na COMPRA = credito
         "ncm": r["ncm"],
         "d": r["descr"][:60],          # descricao curta p/ conferencia
     }

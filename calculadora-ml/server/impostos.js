@@ -50,7 +50,8 @@ export function lookupImposto(termo) {
     encontrado: true,
     por: chave,
     st: !!r.st,
-    icms: Number(r.icms) || 0, // % de ICMS na revenda (0 se ST)
+    icms: Number(r.icms) || 0, // % ICMS interno configurado (info)
+    ic: Number(r.ic) || 0,     // % ICMS destacado na compra = credito
     ncm: r.ncm || '',
     descr: r.d || '',
   }
