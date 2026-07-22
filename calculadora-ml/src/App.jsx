@@ -757,6 +757,7 @@ function Calculator() {
   const [comp, setComp] = useState(null)
   const [res, setRes] = useState(null)
   const [anuncios, setAnuncios] = useState({ loading: false, data: null })
+  const [tendencia, setTendencia] = useState({ loading: false, data: null })
   const [anuncioPrep, setAnuncioPrep] = useState({ loading: false, data: null })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
@@ -875,6 +876,7 @@ function Calculator() {
     const nome = produtoDb?.descricao || f.titulo || ''
     if (!gtin && !ref && !nome.trim()) return
     setAnuncios({ loading: true, data: null })
+    setTendencia({ loading: false, data: null })
     try {
       const qs = new URLSearchParams()
       if (gtin) qs.set('gtin', gtin)
@@ -882,8 +884,24 @@ function Calculator() {
       if (nome) qs.set('nome', nome)
       const d = await fetch('/api/anuncios?' + qs.toString()).then((r) => r.json())
       setAnuncios({ loading: false, data: d })
+      // termômetro de procura (visitas) dos anúncios desse produto
+      const ids = Array.isArray(d?.anuncios) ? d.anuncios.map((a) => a.item_id).filter(Boolean) : []
+      if (ids.length) buscarTendencia(ids)
     } catch {
       setAnuncios({ loading: false, data: null })
+    }
+  }
+
+  // Termômetro de procura: puxa as visitas (últimos 60 dias) dos anúncios do
+  // produto e diz se a procura está subindo, estável ou caindo. Sem banco.
+  async function buscarTendencia(ids) {
+    if (!ids?.length) { setTendencia({ loading: false, data: null }); return }
+    setTendencia({ loading: true, data: null })
+    try {
+      const d = await fetch('/api/tendencia?ids=' + encodeURIComponent(ids.slice(0, 6).join(',')) + '&dias=60').then((r) => r.json())
+      setTendencia({ loading: false, data: d })
+    } catch {
+      setTendencia({ loading: false, data: null })
     }
   }
 
@@ -1341,6 +1359,38 @@ function Calculator() {
                   Não achei anúncios ativos desse produto no ML — tentei pelo{' '}
                   {produtoDb ? 'código de barras, referência e descrição' : 'nome digitado'}.
                 </div>
+              )}
+            </div>
+          )}
+
+          {(tendencia.loading || tendencia.data) && (
+            <div className="card">
+              <h2>📈 Termômetro de procura <span className="pill">visitas · últ. {tendencia.data?.dias || 60} dias</span></h2>
+              {tendencia.loading ? (
+                <p className="spin">Medindo a procura…</p>
+              ) : tendencia.data?.encontrado ? (() => {
+                const t = tendencia.data
+                const c = {
+                  subindo: { bg: '#dcfce7', bd: '#16a34a', fg: '#14532d', emo: '📈', txt: 'Procura em ALTA' },
+                  caindo: { bg: '#fee2e2', bd: '#dc2626', fg: '#7f1d1d', emo: '📉', txt: 'Procura em QUEDA' },
+                  estavel: { bg: '#dbeafe', bd: '#2563eb', fg: '#1e3a8a', emo: '➖', txt: 'Procura ESTÁVEL' },
+                }[t.direcao] || { bg: '#f1f5f9', bd: '#64748b', fg: '#0f172a', emo: '➖', txt: 'Procura' }
+                return (
+                  <div style={{ padding: '16px 18px', borderRadius: 14, background: c.bg, border: `2px solid ${c.bd}`, borderLeft: `10px solid ${c.bd}`, boxShadow: '0 2px 10px rgba(0,0,0,.08)' }}>
+                    <div style={{ fontSize: 19, fontWeight: 800, color: c.fg }}>
+                      {c.emo} {c.txt}{t.change_pct != null ? ` (${t.change_pct > 0 ? '+' : ''}${t.change_pct}%)` : ''}
+                    </div>
+                    <div style={{ marginTop: 8, fontSize: 14.5, fontWeight: 600, color: c.fg }}>
+                      Últimos {t.meia_janela} dias: <b>{t.recente}</b> visitas · {t.meia_janela} dias anteriores: <b>{t.antigo}</b>
+                    </div>
+                    <div className="hint" style={{ marginTop: 10 }}>
+                      Somado de {t.n_itens} anúncio{t.n_itens === 1 ? '' : 's'} do produto. Visita mede procura/interesse, não venda.
+                      {t.sinal_fraco ? ' ⚠️ Pouco tráfego — sinal fraco, leve como pista.' : ''}
+                    </div>
+                  </div>
+                )
+              })() : (
+                <div className="hint">Sem visitas suficientes para medir a procura deste produto.</div>
               )}
             </div>
           )}

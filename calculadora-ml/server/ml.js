@@ -264,3 +264,53 @@ export async function getRealFreight({ price, listingType, logisticType, weightG
     return null
   }
 }
+
+// Termômetro de PROCURA: usa as VISITAS por dia (que o próprio ML guarda) dos
+// anúncios do produto e compara a metade recente da janela com a metade
+// anterior. Não precisa de banco — o histórico vem da API. Visita = interesse,
+// não venda. Soma até 6 anúncios do produto para um sinal menos ruidoso.
+export async function getTendenciaVisitas(itemIds, dias = 60) {
+  const ids = (Array.isArray(itemIds) ? itemIds : String(itemIds || '').split(','))
+    .map((s) => String(s).trim()).filter(Boolean).slice(0, 6)
+  if (!ids.length) return { encontrado: false }
+
+  const respostas = await Promise.all(
+    ids.map((id) => mlGet(`/items/${id}/visits/time_window?last=${dias}&unit=day`).catch(() => null))
+  )
+  const diaria = new Map() // 'YYYY-MM-DD' -> total de visitas somado entre anúncios
+  let ok = 0
+  for (const r of respostas) {
+    if (!r) continue
+    ok++
+    for (const p of (r.results || [])) {
+      if (p?.total == null || !p?.date) continue
+      const dia = String(p.date).slice(0, 10)
+      diaria.set(dia, (diaria.get(dia) || 0) + Number(p.total))
+    }
+  }
+  if (!ok) return { encontrado: false }
+
+  // metade recente x metade anterior da janela
+  const corte = Date.now() - (dias / 2) * 24 * 3600 * 1000
+  let recente = 0, antigo = 0
+  for (const [dia, tot] of diaria) {
+    const ts = new Date(dia + 'T00:00:00Z').getTime()
+    if (ts >= corte) recente += tot
+    else antigo += tot
+  }
+  const total = recente + antigo
+  let direcao = 'estavel', change_pct = null
+  if (antigo > 0) {
+    change_pct = Math.round(((recente - antigo) / antigo) * 100)
+    if (recente > antigo * 1.15) direcao = 'subindo'
+    else if (recente < antigo * 0.85) direcao = 'caindo'
+  } else if (recente > 0) {
+    direcao = 'subindo' // sem base anterior: procura emergindo
+  }
+  return {
+    encontrado: true,
+    dias, meia_janela: Math.round(dias / 2),
+    n_itens: ok, total, recente, antigo, change_pct, direcao,
+    sinal_fraco: total < 15, // pouco tráfego => sinal ruidoso
+  }
+}
