@@ -35,11 +35,6 @@ CHARSET = os.environ.get("FB_CHARSET", "ISO8859_1")
 TOKEN = os.environ.get("AGENT_TOKEN", "")
 AGENT_PORT = int(os.environ.get("AGENT_PORT", "8799"))
 
-# CFOPs de compra sujeita a ST e os que ignoramos ao escolher a entrada "atual"
-CFOP_ST = {1401, 2401, 1403, 2403, 1404, 2404, 1405, 2405, 1410, 2410, 1411, 2411}
-CFOP_IGNORAR = {1917, 2917, 5917, 6917, 1910, 2910, 5910, 6910, 1949, 2949}
-
-
 def conectar():
     from firebird.driver import connect, driver_config
     if not PASSWORD:
@@ -69,12 +64,6 @@ def num(v):
         return float(v)
     except (ValueError, TypeError):
         return None
-
-
-def entrada_e_st(cfop, v_st, v_st_ret, p_st_ret):
-    if cfop is not None and int(cfop) in CFOP_ST:
-        return True
-    return (v_st_ret or 0) > 0 or (p_st_ret or 0) > 0 or (v_st or 0) > 0
 
 
 # colunas do SAC_PROD que interessam (rotulo -> coluna)
@@ -133,29 +122,9 @@ def consultar_produto(cod):
             d[rot] = row[i]
         grupo, subgrupo, fornecedor = row[len(CAMPOS)], row[len(CAMPOS) + 1], row[len(CAMPOS) + 2]
 
-        # entrada mais recente (para ST/ICMS real da compra)
-        cur.execute(
-            "SELECT FIRST 1 i.SAC_RECI_CFOP, i.SAC_RECI_PER_ICMS, i.SAC_RECI_VLR_ICMS_ST, "
-            "  i.SAC_RECI_VL_ST_RET, i.SAC_RECI_PERC_ST_RET, i.SAC_RECI_NCM, n.SAC_REC_DT_ENTRADA "
-            "FROM SAC_RECI i "
-            "JOIN SAC_REC n ON n.SAC_REC_LOJA=i.SAC_RECI_LOJA AND n.SAC_REC_FORNEC=i.SAC_RECI_FORNEC "
-            "  AND n.SAC_REC_DOC=i.SAC_RECI_DOC "
-            "WHERE i.SAC_RECI_COD_PROD=? "
-            "ORDER BY n.SAC_REC_DT_ENTRADA DESC",
-            (cod,),
-        )
-        ent = cur.fetchone()
-        fiscal = None
-        if ent:
-            cfop, per_icms, v_st, v_st_ret, p_st_ret, ncm_ent, dt = ent
-            st = entrada_e_st(cfop, v_st, v_st_ret, p_st_ret)
-            fiscal = {
-                "st": st,
-                "icms_compra_pct": num(per_icms),
-                "cfop_entrada": cfop,
-                "ncm_entrada": (ncm_ent or "").strip() or None,
-                "dt_entrada": dt.isoformat() if dt else None,
-            }
+        # OBS.: a consulta de nota de entrada (ST/ICMS de compra) foi removida de
+        # propósito — o "último custo" já traz os impostos/custos embutidos e as
+        # queries fiscais eram as mais pesadas para o ERP. Nada fiscal é lido aqui.
 
         # estoque (best-effort)
         estoque = None
@@ -215,17 +184,6 @@ def consultar_produto(cod):
                 "largura_cm": num(d["_largura"]),
                 "comprimento_cm": num(d["_comprimento"]),
             },
-            "impostos_cadastro": {
-                "icms_pct": num(d["_icms"]),
-                "csosn": d["_csosn"],
-                "subtrib_pct": num(d["_subtrib"]),
-                "pis_pct": num(d["_pis"]),
-                "cofins_pct": num(d["_cofins"]),
-                "ipi_pct": num(d["_ipi"]),
-                "cst_ipi": (d["_cst_ipi"] or "").strip() or None,
-                "cfop": d["_cfop"],
-            },
-            "fiscal_entrada": fiscal,
             "ativo": (d["_ativo"] or "").strip().upper() == "S",
             "fora_linha": (d["_fora_linha"] or "").strip().upper() == "S",
             "dt_cadastro": d["_dt_cad"].isoformat() if d["_dt_cad"] else None,
