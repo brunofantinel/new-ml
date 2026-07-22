@@ -667,26 +667,19 @@ function Calculator() {
         fetch('/api/predict-category?q=' + encodeURIComponent(query)).then((r) => r.json()).catch(() => []),
         fetch('/api/competitor?q=' + encodeURIComponent(query)).then((r) => r.json()).catch(() => null),
       ])
-      const list = Array.isArray(cd) ? cd : []
+      // A rota já devolve até 3 sugestões ordenadas por confiança (categorias
+      // reais de produtos parecidos primeiro, palpites por palavra-chave depois).
+      // Mostramos todas como chips pra dar mais chance de acerto e já deixamos a
+      // melhor (a primeira) pré-selecionada — o usuário troca com um clique.
+      let list = Array.isArray(cd) ? cd : []
+      // Garante a categoria do concorrente na lista (é o mesmo produto no ML).
+      if (compD?.matched && compD.category_id && !list.some((c) => c.category_id === compD.category_id)) {
+        list = [{ category_id: compD.category_id, category_name: compD.category_name || 'mesma do concorrente', category_path: compD.category_path || '', source: 'produto' }, ...list].slice(0, 3)
+      }
       setComp(compD)
-      // A categoria mais confiável é a do CONCORRENTE: é o mesmo produto já
-      // anunciado no ML, então é a categoria que o próprio ML atribuiu. O
-      // domain_discovery é só chute por palavra-chave e erra feio com nomes
-      // ambíguos (ex.: "BLOCO" de montar cai em "Bloco de Motor"). Por isso,
-      // quando há concorrente casado com categoria, usamos a dele e escondemos
-      // os chutes divergentes. O domain_discovery fica só como reserva.
-      if (compD?.matched && compD.category_id) {
-        setF((prev) => ({
-          ...prev,
-          categoryId: compD.category_id,
-          categoryName: compD.category_name || 'mesma do concorrente',
-        }))
-        setCats([])
-      } else if (autoPick && list.length) {
+      setCats(list)
+      if (list.length) {
         setF((prev) => ({ ...prev, categoryId: list[0].category_id, categoryName: list[0].category_name }))
-        setCats(list.slice(1)) // as outras ficam como alternativas
-      } else {
-        setCats(list)
       }
     } catch {
       setCats([])
@@ -696,8 +689,8 @@ function Calculator() {
   }
 
   function pickCat(c) {
-    setF({ ...f, categoryId: c.category_id, categoryName: c.category_name })
-    setCats([])
+    // Mantém os chips na tela (não limpa) — só troca a categoria escolhida.
+    setF((prev) => ({ ...prev, categoryId: c.category_id, categoryName: c.category_name }))
   }
 
   // Puxa TUDO do banco da loja (agente ao vivo) pelo código interno e preenche
@@ -980,11 +973,36 @@ function Calculator() {
                 </div>
               ))}
 
-              {cats.map((c) => (
-                <button key={c.category_id} className="cat-opt" onClick={() => pickCat(c)}>
-                  <b>{c.category_name}</b> — <code>{c.category_id}</code>
-                </button>
-              ))}
+              {cats.length > 0 && (
+                <div className="hint" style={{ margin: '10px 0 4px' }}>
+                  Sugestões (clique pra escolher a certa):
+                </div>
+              )}
+              {cats.map((c) => {
+                const sel = c.category_id === f.categoryId
+                return (
+                  <button
+                    key={c.category_id}
+                    className="cat-opt"
+                    onClick={() => pickCat(c)}
+                    style={{
+                      display: 'block', width: '100%', textAlign: 'left', marginBottom: 6,
+                      border: sel ? '2px solid #16a34a' : '1px solid #d1d5db',
+                      background: sel ? '#f0fdf4' : '#fff',
+                    }}
+                  >
+                    <div>
+                      {sel ? '✓ ' : ''}<b>{c.category_name}</b> — <code>{c.category_id}</code>
+                      {c.source === 'palpite' && (
+                        <span className="hint" style={{ marginLeft: 6 }}>(palpite por palavra)</span>
+                      )}
+                    </div>
+                    {c.category_path && (
+                      <div className="hint" style={{ marginTop: 2 }}>{c.category_path}</div>
+                    )}
+                  </button>
+                )
+              })}
               <div className="hint">
                 {f.categoryId
                   ? `Categoria escolhida: ${f.categoryName} (${f.categoryId})`

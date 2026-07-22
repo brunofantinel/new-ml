@@ -1,5 +1,5 @@
-import { authStatus, getFees, predictCategory, buildAuthUrl, exchangeCode, getCatalogLive } from './ml.js'
-import { findCompetitor } from './catalog.js'
+import { authStatus, getFees, buildAuthUrl, exchangeCode, getCatalogLive } from './ml.js'
+import { findCompetitor, suggestCategories } from './catalog.js'
 import { lookupImposto } from './impostos.js'
 import { pesquisarMercado, buscarAnuncios } from './mercado.js'
 import { consultarProdutoErp, erpStatus } from './erp.js'
@@ -29,7 +29,7 @@ export async function handleApi(req, res) {
       return true
     }
     if (path === '/api/auth/status') { json(res, authStatus()); return true }
-    if (path === '/api/predict-category') { json(res, await predictCategory(url.searchParams.get('q') || '')); return true }
+    if (path === '/api/predict-category') { json(res, await suggestCategories(url.searchParams.get('q') || '')); return true }
     if (path === '/api/competitor') { json(res, await findCompetitor(url.searchParams.get('q') || '')); return true }
     if (path === '/api/fees') { json(res, await getFees(Object.fromEntries(url.searchParams))); return true }
     if (path === '/api/imposto') { json(res, lookupImposto(url.searchParams.get('cod') || '')); return true }

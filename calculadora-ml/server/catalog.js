@@ -1,4 +1,4 @@
-import { mlGet, getCatalogLive } from './ml.js'
+import { mlGet, getCatalogLive, predictCategory } from './ml.js'
 
 // Limpa o nome do produto para melhorar o acerto na busca do catálogo:
 // tira o sufixo " - MARCA", códigos soltos e espaços repetidos.
@@ -13,15 +13,71 @@ function limparNome(nome) {
 // Ex.: MLB12443 -> { name: 'Blocos e Formas de Montar',
 //                    path: 'Brinquedos e Hobbies > ... > Blocos e Formas de Montar',
 //                    root: 'Brinquedos e Hobbies' }
+const _catCache = new Map()
 async function categoryInfo(categoryId) {
   if (!categoryId) return null
+  if (_catCache.has(categoryId)) return _catCache.get(categoryId)
   try {
     const c = await mlGet(`/categories/${categoryId}`)
     const path = Array.isArray(c?.path_from_root) ? c.path_from_root.map((p) => p.name) : []
-    return { name: c?.name || null, path: path.join(' > '), root: path[0] || null }
+    const info = { name: c?.name || null, path: path.join(' > '), root: path[0] || null }
+    _catCache.set(categoryId, info)
+    return info
   } catch {
     return null
   }
+}
+
+// Sugere ATÉ 3 categorias para o produto, sempre que possível, pra dar mais
+// chance de acerto (o usuário escolhe). A ordem de confiança é:
+//   1) categorias REAIS de produtos parecidos já anunciados no ML (o próprio ML
+//      atribuiu — alta precisão);
+//   2) palpites por palavra-chave do domain_discovery (reserva — pode errar com
+//      nomes ambíguos, ex.: "BLOCO" de montar caindo em "Bloco de Motor").
+// Cada sugestão vem com nome e caminho reais e a fonte ('produto' | 'palpite').
+export async function suggestCategories(query) {
+  const q = limparNome(query) || query
+  if (!q) return []
+
+  // 1) categorias reais dos primeiros produtos do catálogo (com vendedor ativo)
+  let searchResults = []
+  try {
+    const r = await mlGet(`/products/search?status=active&site_id=MLB&q=${encodeURIComponent(q)}`)
+    searchResults = Array.isArray(r?.results) ? r.results.slice(0, 6) : []
+  } catch {}
+  const lives = await Promise.all(searchResults.map((c) => getCatalogLive(c.id).catch(() => null)))
+  const peso = new Map() // category_id -> soma de vendedores (proxy de relevância)
+  for (const live of lives) {
+    if (!live?.category_id) continue
+    peso.set(live.category_id, (peso.get(live.category_id) || 0) + (live.n_vend || 1))
+  }
+  const reais = [...peso.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id)
+
+  // 2) palpites por palavra-chave (reserva, pra completar até 3)
+  let guesses = []
+  try { guesses = await predictCategory(q) } catch {}
+
+  // 3) monta a lista final deduplicada: reais primeiro, palpites depois
+  const out = []
+  const seen = new Set()
+  for (const id of reais) {
+    if (out.length >= 3 || seen.has(id)) continue
+    const info = await categoryInfo(id)
+    if (info) { out.push({ category_id: id, category_name: info.name, category_path: info.path, source: 'produto' }); seen.add(id) }
+  }
+  for (const g of guesses) {
+    if (out.length >= 3) break
+    if (!g.category_id || seen.has(g.category_id)) continue
+    const info = await categoryInfo(g.category_id)
+    out.push({
+      category_id: g.category_id,
+      category_name: info?.name || g.category_name,
+      category_path: info?.path || '',
+      source: 'palpite',
+    })
+    seen.add(g.category_id)
+  }
+  return out
 }
 
 // Busca um produto no catálogo pelo nome e devolve o MENOR preço praticado hoje
