@@ -1,7 +1,7 @@
 import { authStatus, getFees, buildAuthUrl, exchangeCode, getCatalogLive } from './ml.js'
 import { findCompetitor, suggestCategories, getAnuncioBase } from './catalog.js'
 import { pesquisarMercado, buscarAnuncios } from './mercado.js'
-import { consultarProdutoErp, erpStatus } from './erp.js'
+import { consultarProdutoErp, consultarPorBarras, erpStatus } from './erp.js'
 
 // Handler compartilhado das rotas /api/* e /callback.
 // Usado tanto pelo dev-server do Vite (vite-plugin-api.js) quanto pelo
@@ -43,6 +43,7 @@ export async function handleApi(req, res) {
       return true
     }
     if (path === '/api/produto') { json(res, await consultarProdutoErp(url.searchParams.get('cod') || '')); return true }
+    if (path === '/api/produto-barras') { json(res, await consultarPorBarras(url.searchParams.get('barras') || '')); return true }
     if (path === '/api/erp/status') { json(res, await erpStatus()); return true }
     if (path === '/api/vantagem/live') {
       const catalogId = (url.searchParams.get('catalog_id') || '').trim()

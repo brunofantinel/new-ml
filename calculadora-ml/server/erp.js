@@ -8,19 +8,17 @@
 //   ERP_API_KEY   o mesmo AGENT_TOKEN definido no agente
 //   ERP_TIMEOUT_MS (opcional, padrão 8000)
 
-export async function consultarProdutoErp(cod) {
+// Chama o agente numa rota (/produto/<cod> ou /barras/<ean>) e devolve o JSON.
+async function chamarAgente(path) {
   const base = (process.env.ERP_API_URL || '').replace(/\/+$/, '')
   const key = process.env.ERP_API_KEY || ''
   if (!base) return { encontrado: false, erro: 'erp_nao_configurado' }
-
-  const codDig = String(cod || '').replace(/\D/g, '')
-  if (!codDig) return { encontrado: false, erro: 'codigo_invalido' }
 
   const timeout = Number(process.env.ERP_TIMEOUT_MS) || 8000
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), timeout)
   try {
-    const r = await fetch(`${base}/produto/${codDig}`, {
+    const r = await fetch(`${base}${path}`, {
       headers: key ? { 'X-API-Key': key } : {},
       signal: ctrl.signal,
     })
@@ -32,6 +30,20 @@ export async function consultarProdutoErp(cod) {
   } finally {
     clearTimeout(t)
   }
+}
+
+// Consulta por CÓDIGO INTERNO do produto.
+export async function consultarProdutoErp(cod) {
+  const codDig = String(cod || '').replace(/\D/g, '')
+  if (!codDig) return { encontrado: false, erro: 'codigo_invalido' }
+  return chamarAgente(`/produto/${codDig}`)
+}
+
+// Consulta por CÓDIGO DE BARRAS (EAN/GTIN).
+export async function consultarPorBarras(barras) {
+  const barDig = String(barras || '').replace(/\D/g, '')
+  if (!barDig) return { encontrado: false, erro: 'barras_invalido' }
+  return chamarAgente(`/barras/${barDig}`)
 }
 
 // status simples da conexão com o agente (para a tela avisar se está no ar)

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 const money = (v) =>
   'R$ ' + (v < 0 ? '-' : '') + Math.abs(v ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -645,6 +645,43 @@ function avaliarPreco(preco, custo, mercado) {
   }
 }
 
+// Modal que abre a câmera (traseira no celular) e lê o código de barras ao vivo.
+// Funciona em Android e iPhone (Safari/Chrome) via @zxing/browser. Precisa HTTPS.
+function ScannerModal({ onDetect, onClose }) {
+  const videoRef = useRef(null)
+  const [err, setErr] = useState(null)
+  useEffect(() => {
+    let controls = null
+    let done = false
+    let cancelado = false
+    // carrega o leitor sob demanda (mantém o app leve até abrir a câmera)
+    import('@zxing/browser')
+      .then(({ BrowserMultiFormatReader }) => {
+        if (cancelado) return
+        const reader = new BrowserMultiFormatReader()
+        return reader.decodeFromConstraints({ video: { facingMode: 'environment' } }, videoRef.current, (result, _e, ctrl) => {
+          controls = ctrl
+          if (result && !done) {
+            done = true
+            try { ctrl.stop() } catch { /* noop */ }
+            onDetect(result.getText())
+          }
+        })
+      })
+      .then((c) => { if (c) controls = c })
+      .catch((e) => setErr('Não consegui abrir a câmera. Verifique a permissão e o HTTPS. (' + (e?.message || e) + ')'))
+    return () => { cancelado = true; try { controls && controls.stop() } catch { /* noop */ } }
+  }, [])
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.88)', zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ color: '#fff', marginBottom: 12, fontWeight: 700, textAlign: 'center' }}>Aponte a câmera para o código de barras</div>
+      <video ref={videoRef} style={{ width: '100%', maxWidth: 460, aspectRatio: '4/3', objectFit: 'cover', borderRadius: 12, background: '#000' }} muted playsInline />
+      {err && <div style={{ color: '#fca5a5', marginTop: 12, maxWidth: 460, textAlign: 'center' }}>{err}</div>}
+      <button className="primary" style={{ marginTop: 16 }} onClick={onClose}>Fechar</button>
+    </div>
+  )
+}
+
 function Calculator() {
   const [f, setF] = useState({
     titulo: '',
@@ -653,6 +690,7 @@ function Calculator() {
     preco: '49.90',
     custo: '15.00',
     codigo: '',
+    barras: '',
     listingType: 'gold_special',
     logisticType: 'cross_docking',
     alt: '', larg: '', comp: '',
@@ -663,6 +701,7 @@ function Calculator() {
   const [produtoDb, setProdutoDb] = useState(null) // resultado ao vivo do /api/produto (agente do ERP)
   const [dbBusy, setDbBusy] = useState(false)
   const [dbMsg, setDbMsg] = useState(null)
+  const [scanOpen, setScanOpen] = useState(false)
   const [cats, setCats] = useState([])
   const [predicting, setPredicting] = useState(false)
   const [comp, setComp] = useState(null)
@@ -715,42 +754,65 @@ function Calculator() {
     setF((prev) => ({ ...prev, categoryId: c.category_id, categoryName: c.category_name }))
   }
 
-  // Puxa do banco da loja (agente ao vivo) pelo código interno e preenche os
-  // campos: preço de venda, ÚLTIMO CUSTO (já com impostos/custos embutidos),
-  // peso e medidas. Não lê nada fiscal (notas de entrada/ICMS).
+  // Preenche os campos a partir do produto vindo do banco (por código ou barras):
+  // preço de venda, ÚLTIMO CUSTO (já com impostos/custos), peso e medidas. Sem fiscal.
+  function preencherProduto(d) {
+    setProdutoDb(d)
+    const dim = d.dimensoes || {}
+    const peso = dim.peso_emb_kg || dim.peso_unit_kg
+    setF((prev) => ({
+      ...prev,
+      // já assume o preço de venda cadastrado no banco (o usuário pode editar)
+      preco: d.preco_venda != null ? String(d.preco_venda) : prev.preco,
+      custo: d.custo?.ultimo != null ? String(d.custo.ultimo) : prev.custo,
+      titulo: prev.titulo || d.descricao || '',
+      codigo: d.codigo != null ? String(d.codigo) : prev.codigo,
+      barras: d.codigo_barras || prev.barras,
+      pesoKg: peso != null ? String(peso) : prev.pesoKg,
+      alt: dim.altura_cm != null ? String(dim.altura_cm) : prev.alt,
+      larg: dim.largura_cm != null ? String(dim.largura_cm) : prev.larg,
+      comp: dim.comprimento_cm != null ? String(dim.comprimento_cm) : prev.comp,
+    }))
+    // já tenta descobrir a categoria/comissão e o concorrente pela descrição
+    if (d.descricao) predict(d.descricao, true)
+  }
+
+  const msgErpErro = (erro, alvo) => ({
+    erp_nao_configurado: 'A conexão com o banco da loja ainda não foi configurada no servidor.',
+    erp_indisponivel: 'O agente da loja está offline.',
+    erp_timeout: 'O banco demorou a responder.',
+    codigo_invalido: 'Digite o código interno (numérico) do produto.',
+    barras_invalido: 'Código de barras inválido.',
+  }[erro] || `Não achei ${alvo} no banco da loja.`)
+
+  // Puxa do banco pelo CÓDIGO INTERNO.
   async function puxarDoBanco() {
     const c = f.codigo.trim().replace(/\D/g, '')
     if (!c) return
     setDbBusy(true); setDbMsg(null); setProdutoDb(null)
     try {
       const d = await fetch('/api/produto?cod=' + encodeURIComponent(c)).then((r) => r.json())
-      if (d.encontrado) {
-        setProdutoDb(d)
-        const dim = d.dimensoes || {}
-        const peso = dim.peso_emb_kg || dim.peso_unit_kg
-        setF((prev) => ({
-          ...prev,
-          // já assume o preço de venda cadastrado no banco (o usuário pode editar)
-          preco: d.preco_venda != null ? String(d.preco_venda) : prev.preco,
-          custo: d.custo?.ultimo != null ? String(d.custo.ultimo) : prev.custo,
-          titulo: prev.titulo || d.descricao || '',
-          pesoKg: peso != null ? String(peso) : prev.pesoKg,
-          alt: dim.altura_cm != null ? String(dim.altura_cm) : prev.alt,
-          larg: dim.largura_cm != null ? String(dim.largura_cm) : prev.larg,
-          comp: dim.comprimento_cm != null ? String(dim.comprimento_cm) : prev.comp,
-        }))
-        // já tenta descobrir a categoria/comissão e o concorrente pela descrição
-        if (d.descricao) predict(d.descricao, true)
-      } else {
-        setDbMsg({
-          erp_nao_configurado: 'A conexão com o banco da loja ainda não foi configurada no servidor.',
-          erp_indisponivel: 'O agente da loja está offline.',
-          erp_timeout: 'O banco demorou a responder.',
-          codigo_invalido: 'Digite o código interno (numérico) do produto.',
-        }[d.erro] || `Não achei o produto ${c} no banco da loja.`)
-      }
+      if (d.encontrado) preencherProduto(d)
+      else setDbMsg(msgErpErro(d.erro, `o produto ${c}`))
     } catch {
       setDbMsg('Não consegui puxar do banco agora. Tente de novo.')
+    }
+    setDbBusy(false)
+  }
+
+  // Puxa do banco pelo CÓDIGO DE BARRAS (escaneado ou digitado).
+  async function puxarPorBarras(barras) {
+    const b = String(barras ?? f.barras).replace(/\D/g, '')
+    if (!b) return
+    setScanOpen(false)
+    setDbBusy(true); setDbMsg(null); setProdutoDb(null)
+    setF((prev) => ({ ...prev, barras: b }))
+    try {
+      const d = await fetch('/api/produto-barras?barras=' + encodeURIComponent(b)).then((r) => r.json())
+      if (d.encontrado) preencherProduto(d)
+      else setDbMsg(msgErpErro(d.erro, `o código de barras ${b}`))
+    } catch {
+      setDbMsg('Não consegui consultar agora. Tente de novo.')
     }
     setDbBusy(false)
   }
@@ -859,6 +921,9 @@ function Calculator() {
 
   return (
     <>
+      {scanOpen && (
+        <ScannerModal onDetect={(code) => puxarPorBarras(code)} onClose={() => setScanOpen(false)} />
+      )}
       <div className="grid">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="card">
@@ -887,6 +952,21 @@ function Calculator() {
                 </div>
                 <button className="ghost" onClick={puxarDoBanco} disabled={dbBusy}>
                   {dbBusy ? 'Puxando…' : 'Puxar do banco'}
+                </button>
+              </div>
+              <div className="row-inline" style={{ marginTop: 8 }}>
+                <div className="field">
+                  <input
+                    placeholder="ou código de barras (EAN)"
+                    value={f.barras}
+                    inputMode="numeric"
+                    onChange={upd('barras')}
+                    onKeyDown={(e) => { if (e.key === 'Enter') puxarPorBarras() }}
+                  />
+                </div>
+                <button className="ghost" onClick={() => setScanOpen(true)}>📷 Escanear</button>
+                <button className="ghost" onClick={() => puxarPorBarras()} disabled={dbBusy}>
+                  {dbBusy ? '…' : 'Buscar'}
                 </button>
               </div>
               {dbMsg && <div className="hint" style={{ marginTop: 8 }}>{dbMsg}</div>}

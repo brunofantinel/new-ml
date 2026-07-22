@@ -99,10 +99,25 @@ CAMPOS = [
 ]
 
 
-def consultar_produto(cod):
+def consultar_produto(cod=None, barras=None):
     con = conectar()
     try:
         cur = con.cursor()
+        # Busca por codigo de barras: resolve o codigo interno na mesma conexao.
+        # SAC_PROD_COD_BARRAS e numerico (double); comparamos pelo numero.
+        if barras is not None:
+            try:
+                bnum = float(str(barras).strip())
+            except (ValueError, TypeError):
+                return {"encontrado": False, "erro": "barras_invalido"}
+            cur.execute(
+                "SELECT FIRST 1 SAC_PROD_COD FROM SAC_PROD WHERE SAC_PROD_COD_BARRAS = ?",
+                (bnum,),
+            )
+            r = cur.fetchone()
+            if not r:
+                return {"encontrado": False}
+            cod = int(r[0])
         colnames = ", ".join(f"p.{c}" for c, _ in CAMPOS)
         cur.execute(
             f"SELECT {colnames}, g.SAC_GRUP_DESCR, sg.SAC_SUBG_DESCR, f.FORNECEDOR_NOME "
@@ -222,6 +237,15 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 return self._send(500, {"error": "erro_consulta", "detalhe": str(e)})
 
+        if self.path.startswith("/barras/"):
+            bar_str = self.path.split("/barras/", 1)[1].split("?")[0].strip()
+            if not bar_str.isdigit():
+                return self._send(400, {"error": "barras_invalido"})
+            try:
+                return self._send(200, consultar_produto(barras=bar_str))
+            except Exception as e:
+                return self._send(500, {"error": "erro_consulta", "detalhe": str(e)})
+
         self._send(404, {"error": "rota_nao_encontrada"})
 
 
@@ -232,7 +256,7 @@ def main():
         print("AVISO: AGENT_TOKEN vazio — o agente ficara SEM autenticacao. Defina AGENT_TOKEN.")
     srv = ThreadingHTTPServer(("0.0.0.0", AGENT_PORT), Handler)
     print(f"Agente ERP ouvindo em http://0.0.0.0:{AGENT_PORT}  (Firebird {HOST}:{PORT})")
-    print("Rotas: GET /health  |  GET /produto/<codigo> (header X-API-Key)")
+    print("Rotas: GET /health  |  GET /produto/<codigo>  |  GET /barras/<ean> (header X-API-Key)")
     srv.serve_forever()
 
 
