@@ -1063,10 +1063,12 @@ function Calculator() {
                     onKeyDown={(e) => { if (e.key === 'Enter') puxarPorBarras() }}
                   />
                 </div>
-                <button className="ghost" onClick={() => setScanOpen(true)}>📷 Escanear</button>
-                <button className="ghost" onClick={() => puxarPorBarras()} disabled={dbBusy}>
-                  {dbBusy ? '…' : 'Buscar'}
-                </button>
+                <div className="btn-row">
+                  <button className="ghost" onClick={() => setScanOpen(true)}>📷 Escanear</button>
+                  <button className="ghost" onClick={() => puxarPorBarras()} disabled={dbBusy}>
+                    {dbBusy ? '…' : 'Buscar'}
+                  </button>
+                </div>
               </div>
               {dbMsg && <div className="hint" style={{ marginTop: 8 }}>{dbMsg}</div>}
               {produtoDb && (

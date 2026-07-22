@@ -39,6 +39,7 @@ input:focus, select:focus { outline: 2px solid var(--accent-soft); outline-offse
 .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 9px; }
 .row-inline { display: flex; gap: 8px; align-items: flex-end; }
 .row-inline > .field { flex: 1; margin-bottom: 0; }
+.btn-row { display: flex; gap: 8px; }
 button.primary {
   background: var(--accent); color: #fff; border: 0; border-radius: 10px; padding: 12px 18px;
   font-size: 15px; font-weight: 700; cursor: pointer; width: 100%;
@@ -137,3 +138,48 @@ footer { color: var(--soft); font-size: 11.5px; border-top: 1px solid var(--line
 .mkt-item.win { border-color: var(--accent-soft); background: var(--accent-bg); }
 .mkt-item-price { font-family: var(--mono); font-weight: 800; font-size: 15px; min-width: 88px; }
 .mkt-item-sel { font-size: 12.5px; }
+
+/* =========================================================================
+   MOBILE (< 760px): organiza os passos e os inputs pra ficar claro e coerente.
+   Só afeta o celular — o desktop (>= 760px, 2 colunas) fica intacto.
+   ========================================================================= */
+@media (max-width: 759px) {
+  .wrap { padding: 16px 13px 56px; }
+  .grid { gap: 14px; }
+  .card { padding: 16px 15px; border-radius: 16px; }
+
+  /* cabeçalho de cada PASSO bem separado e destacado */
+  .card h2 {
+    font-size: 16px; margin-bottom: 15px; padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .card h2 .n { width: 24px; height: 24px; font-size: 13px; }
+
+  /* mais respiro entre campos e textos um tico maiores pra leitura no celular */
+  .field { margin-bottom: 16px; }
+  label { font-size: 13px; margin-bottom: 6px; }
+  .hint { font-size: 12px; line-height: 1.45; }
+
+  /* grupos "input + botão(ões)" EMPILHAM no mobile — nada de espremer */
+  .row-inline { flex-direction: column; align-items: stretch; gap: 8px; }
+  .row-inline > .field { flex: none; width: 100%; }
+  .row-inline > button.ghost,
+  .row-inline > .ghost.link { width: 100%; text-align: center; justify-content: center; }
+  .btn-row { width: 100%; }
+  .btn-row > button { flex: 1; }
+
+  /* toque confortável */
+  button.ghost { padding: 12px 14px; font-size: 14px; }
+  button.primary { padding: 14px 18px; font-size: 16px; }
+
+  /* no celular o resultado não gruda no topo (fica na ordem natural) */
+  .result-card { position: static; }
+
+  /* abas roláveis na horizontal em vez de quebrarem/espremerem */
+  .tabs { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { white-space: nowrap; padding: 10px 2px; margin-right: 16px; flex: 0 0 auto; }
+
+  /* medidas Alt × Larg × Comp continuam lado a lado, só com respiro */
+  .row3 { gap: 8px; }
+}
