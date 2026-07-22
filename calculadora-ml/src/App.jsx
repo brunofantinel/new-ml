@@ -758,6 +758,7 @@ function Calculator() {
   const [res, setRes] = useState(null)
   const [anuncios, setAnuncios] = useState({ loading: false, data: null })
   const [tendencia, setTendencia] = useState({ loading: false, data: null })
+  const [janelaDias, setJanelaDias] = useState(60) // janela do termômetro de procura
   const [anuncioPrep, setAnuncioPrep] = useState({ loading: false, data: null })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
@@ -894,11 +895,11 @@ function Calculator() {
 
   // Termômetro de procura: puxa as visitas (últimos 60 dias) dos anúncios do
   // produto e diz se a procura está subindo, estável ou caindo. Sem banco.
-  async function buscarTendencia(ids) {
+  async function buscarTendencia(ids, dias = janelaDias) {
     if (!ids?.length) { setTendencia({ loading: false, data: null }); return }
     setTendencia({ loading: true, data: null })
     try {
-      const d = await fetch('/api/tendencia?ids=' + encodeURIComponent(ids.slice(0, 6).join(',')) + '&dias=60').then((r) => r.json())
+      const d = await fetch('/api/tendencia?ids=' + encodeURIComponent(ids.slice(0, 6).join(',')) + '&dias=' + dias).then((r) => r.json())
       setTendencia({ loading: false, data: d })
     } catch {
       setTendencia({ loading: false, data: null })
@@ -1365,7 +1366,23 @@ function Calculator() {
 
           {(tendencia.loading || tendencia.data) && (
             <div className="card">
-              <h2>📈 Termômetro de procura <span className="pill">visitas · últ. {tendencia.data?.dias || 60} dias</span></h2>
+              <h2>📈 Termômetro de procura <span className="pill">visitas</span></h2>
+              <div className="field" style={{ marginBottom: 12 }}>
+                <label>Janela de análise</label>
+                <select
+                  value={janelaDias}
+                  onChange={(e) => {
+                    const d = Number(e.target.value)
+                    setJanelaDias(d)
+                    const ids = (anuncios.data?.anuncios || []).map((a) => a.item_id).filter(Boolean)
+                    buscarTendencia(ids, d)
+                  }}
+                >
+                  <option value={30}>Últimos 30 dias</option>
+                  <option value={60}>Últimos 60 dias</option>
+                  <option value={90}>Últimos 90 dias</option>
+                </select>
+              </div>
               {tendencia.loading ? (
                 <p className="spin">Medindo a procura…</p>
               ) : tendencia.data?.encontrado ? (() => {
