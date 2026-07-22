@@ -755,6 +755,7 @@ function Calculator() {
   const [cats, setCats] = useState([])
   const [predicting, setPredicting] = useState(false)
   const [comp, setComp] = useState(null)
+  const [compIdx, setCompIdx] = useState(0) // qual candidato "é o seu produto"
   const [res, setRes] = useState(null)
   const [anuncios, setAnuncios] = useState({ loading: false, data: null })
   const [tendencia, setTendencia] = useState({ loading: false, data: null })
@@ -765,6 +766,17 @@ function Calculator() {
 
   const upd = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
 
+  // Limpa TUDO que era do produto anterior — chamado ao pesquisar/puxar um novo,
+  // pra a tela nunca misturar dados de dois produtos.
+  function limparResultados() {
+    setComp(null); setCompIdx(0)
+    setCats([])
+    setRes(null); setErr(null)
+    setAnuncios({ loading: false, data: null })
+    setTendencia({ loading: false, data: null })
+    setAnuncioPrep({ loading: false, data: null })
+  }
+
   // term: texto a pesquisar (default = campo título). autoPick: quando true, já
   // escolhe a melhor categoria (preenche o category_id) e deixa as demais como
   // alternativas — usado ao puxar o produto do banco.
@@ -772,8 +784,7 @@ function Calculator() {
     const query = (typeof term === 'string' ? term : f.titulo).trim()
     if (!query) return
     setPredicting(true)
-    setCats([])
-    setComp(null)
+    limparResultados() // some com tudo do produto anterior
     try {
       // busca a categoria e o preço do concorrente ao mesmo tempo
       const [cd, compD] = await Promise.all([
@@ -842,6 +853,7 @@ function Calculator() {
     const c = f.codigo.trim().replace(/\D/g, '')
     if (!c) return
     setDbBusy(true); setDbMsg(null); setProdutoDb(null)
+    limparResultados()
     try {
       const d = await fetch('/api/produto?cod=' + encodeURIComponent(c)).then((r) => r.json())
       if (d.encontrado) preencherProduto(d)
@@ -858,6 +870,7 @@ function Calculator() {
     if (!b) return
     setScanOpen(false)
     setDbBusy(true); setDbMsg(null); setProdutoDb(null)
+    limparResultados()
     setF((prev) => ({ ...prev, barras: b }))
     try {
       const d = await fetch('/api/produto-barras?barras=' + encodeURIComponent(b)).then((r) => r.json())
@@ -871,10 +884,11 @@ function Calculator() {
 
   // Busca os anúncios desse produto no ML tentando os identificadores em ordem
   // de precisão: código de barras (GTIN) -> referência -> descrição.
-  async function buscarAnunciosProduto() {
-    const gtin = produtoDb?.codigo_barras || ''
-    const ref = produtoDb?.referencia || ''
-    const nome = produtoDb?.descricao || f.titulo || ''
+  async function buscarAnunciosProduto(nomeOverride) {
+    // Se veio o nome do candidato escolhido, busca por ele (produto confirmado).
+    const gtin = nomeOverride ? '' : (produtoDb?.codigo_barras || '')
+    const ref = nomeOverride ? '' : (produtoDb?.referencia || '')
+    const nome = nomeOverride || produtoDb?.descricao || f.titulo || ''
     if (!gtin && !ref && !nome.trim()) return
     setAnuncios({ loading: true, data: null })
     setTendencia({ loading: false, data: null })
@@ -913,7 +927,8 @@ function Calculator() {
   // Quando o produto não está no catálogo, preenche só com o que houver.
   async function prepararAnuncio() {
     setAnuncioPrep({ loading: true, data: null })
-    const catId = comp?.matched ? comp.catalog_id : ''
+    const cAtivo = comp?.candidatos?.[compIdx] || comp
+    const catId = comp?.matched ? (cAtivo?.catalog_id || '') : ''
     let base = { catalog: null, required_attributes: [] }
     try {
       base = await fetch(
@@ -926,8 +941,8 @@ function Calculator() {
     const draft = {
       viaCatalogo: !!base.catalog?.matched,
       catalogId: catId || null,
-      catalogUrl: comp?.url || null,
-      titulo: base.catalog?.title || produtoDb?.descricao || comp?.name || f.titulo || '',
+      catalogUrl: cAtivo?.url || null,
+      titulo: base.catalog?.title || produtoDb?.descricao || cAtivo?.name || f.titulo || '',
       categoriaNome: f.categoryName || null,
       categoriaId: f.categoryId || null,
       preco: parseFloat(f.preco) || null,
@@ -969,7 +984,9 @@ function Calculator() {
       const d = await fetch('/api/fees?' + q.toString()).then((r) => r.json())
       if (d.error) throw new Error(d.detail?.message || d.error)
       setRes(d)
-      buscarAnunciosProduto() // em paralelo: já traz os anúncios daquele produto
+      // anúncios do produto CONFIRMADO (candidato escolhido), se houver
+      const nomeSel = comp?.candidatos?.[compIdx]?.name || comp?.name
+      buscarAnunciosProduto(nomeSel)
     } catch (e) {
       setErr(e.message)
     }
@@ -987,6 +1004,19 @@ function Calculator() {
   // posicionamento do seu preço vs a média dos anúncios do mesmo produto no ML
   const mercado = anuncios.data?.matched && anuncios.data?.preco?.mediana != null ? anuncios.data.preco : null
   const aval = res ? avaliarPreco(preco, custo, mercado) : null
+  // produto ativo = o candidato que o usuário confirmou ("é este seu produto?")
+  const candidatos = comp?.candidatos || []
+  const compAtivo = candidatos[compIdx] || comp
+
+  // ao escolher outro candidato: troca a seleção, aplica a categoria dele e
+  // re-busca os anúncios/termômetro daquele produto.
+  function escolherCandidato(i) {
+    setCompIdx(i)
+    const cand = candidatos[i]
+    if (!cand) return
+    if (cand.category_id) setF((prev) => ({ ...prev, categoryId: cand.category_id, categoryName: cand.category_name || 'mesma do concorrente' }))
+    buscarAnunciosProduto(cand.name)
+  }
 
   return (
     <>
@@ -1069,18 +1099,43 @@ function Calculator() {
 
               {comp && (comp.matched ? (
                 <div className="callout" style={{ margin: '10px 0 0' }}>
-                  💰 <b>No Mercado Livre</b> o mais barato hoje é <b>{money(comp.price)}</b>
-                  {comp.n_vend ? ` (${comp.n_vend} loja${comp.n_vend === 1 ? '' : 's'} vendendo)` : ''}.
+                  {candidatos.length > 1 && (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ fontWeight: 700, marginBottom: 6 }}>É este o seu produto?</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {candidatos.map((cand, i) => {
+                          const sel = i === compIdx
+                          return (
+                            <button
+                              key={cand.catalog_id}
+                              className="cat-opt"
+                              onClick={() => escolherCandidato(i)}
+                              style={{ display: 'flex', gap: 10, alignItems: 'center', textAlign: 'left', border: sel ? '2px solid #16a34a' : '1px solid #d1d5db', background: sel ? '#f0fdf4' : '#fff' }}
+                            >
+                              {cand.thumbnail && <img src={cand.thumbnail} alt="" style={{ width: 42, height: 42, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />}
+                              <span style={{ flex: 1 }}>
+                                {sel ? '✓ ' : ''}<b>{cand.name}</b>
+                                <div className="hint">{money(cand.price)}{cand.n_vend ? ` · ${cand.n_vend} vendendo` : ''}{cand.category_name ? ` · ${cand.category_name}` : ''}</div>
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                      <div className="hint" style={{ marginTop: 4 }}>Clique no certo — o preço, a categoria e o mercado abaixo passam a ser dele.</div>
+                    </div>
+                  )}
+                  💰 <b>No Mercado Livre</b> o mais barato hoje é <b>{money(compAtivo.price)}</b>
+                  {compAtivo.n_vend ? ` (${compAtivo.n_vend} loja${compAtivo.n_vend === 1 ? '' : 's'} vendendo)` : ''}.
                   <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    <button className="ghost" onClick={() => setF({ ...f, preco: String(comp.price) })}>Usar esse preço</button>
-                    {comp.category_id && (
-                      <button className="ghost" onClick={() => setF({ ...f, categoryId: comp.category_id, categoryName: comp.category_name || 'mesma do concorrente' })}>Usar a categoria</button>
+                    <button className="ghost" onClick={() => setF({ ...f, preco: String(compAtivo.price) })}>Usar esse preço</button>
+                    {compAtivo.category_id && (
+                      <button className="ghost" onClick={() => setF({ ...f, categoryId: compAtivo.category_id, categoryName: compAtivo.category_name || 'mesma do concorrente' })}>Usar a categoria</button>
                     )}
-                    {comp.url && <a className="ghost link" href={comp.url} target="_blank" rel="noreferrer">Ver no ML ▸</a>}
+                    {compAtivo.url && <a className="ghost link" href={compAtivo.url} target="_blank" rel="noreferrer">Ver no ML ▸</a>}
                   </div>
-                  <div className="hint" style={{ marginTop: 6 }}>Produto no ML: {comp.name}</div>
-                  {comp.category_path && (
-                    <div className="hint" style={{ marginTop: 2 }}>Categoria do ML: {comp.category_path}</div>
+                  <div className="hint" style={{ marginTop: 6 }}>Produto no ML: {compAtivo.name}</div>
+                  {compAtivo.category_path && (
+                    <div className="hint" style={{ marginTop: 2 }}>Categoria do ML: {compAtivo.category_path}</div>
                   )}
                 </div>
               ) : (

@@ -85,40 +85,48 @@ export async function suggestCategories(query) {
 export async function findCompetitor(query) {
   const q = limparNome(query) || query
   const r = await mlGet(`/products/search?status=active&site_id=MLB&q=${encodeURIComponent(q)}`)
-  const results = Array.isArray(r?.results) ? r.results.slice(0, 3) : []
-  if (!results.length) return { matched: false, reason: 'sem_resultado' }
-  // tenta os primeiros resultados e pega o primeiro que tem preço ativo
+  const results = Array.isArray(r?.results) ? r.results.slice(0, 5) : []
+  if (!results.length) return { matched: false, reason: 'sem_resultado', candidatos: [] }
+
+  // monta ATÉ 3 candidatos com preço, pra o usuário confirmar qual é o produto
+  const candidatos = []
   for (const cand of results) {
+    if (candidatos.length >= 3) break
     try {
       const live = await getCatalogLive(cand.id)
-      if (live.price != null) {
-        const info = await categoryInfo(live.category_id)
-        return {
-          matched: true,
-          reason: 'ok',
-          catalog_id: cand.id,
-          name: cand.name,
-          price: live.price,
-          item_id: live.item_id,
-          category_id: live.category_id,
-          category_name: info?.name || null,
-          category_path: info?.path || null,
-          n_vend: live.n_vend,
-          url: `https://www.mercadolivre.com.br/p/${cand.id}`,
-        }
-      }
+      if (live.price == null) continue
+      const info = await categoryInfo(live.category_id)
+      candidatos.push({
+        catalog_id: cand.id,
+        name: cand.name,
+        thumbnail: cand.pictures?.[0]?.url || null,
+        price: live.price,
+        item_id: live.item_id,
+        category_id: live.category_id,
+        category_name: info?.name || null,
+        category_path: info?.path || null,
+        n_vend: live.n_vend,
+        url: `https://www.mercadolivre.com.br/p/${cand.id}`,
+      })
     } catch {
       // esse produto deu erro no catálogo — tenta o próximo
     }
   }
-  // achou o produto mas ninguém vendendo agora
-  return {
-    matched: false,
-    reason: 'sem_preco',
-    catalog_id: results[0].id,
-    name: results[0].name,
-    url: `https://www.mercadolivre.com.br/p/${results[0].id}`,
+
+  if (!candidatos.length) {
+    // achou produto(s) mas ninguém vendendo agora
+    return {
+      matched: false,
+      reason: 'sem_preco',
+      candidatos: [],
+      catalog_id: results[0].id,
+      name: results[0].name,
+      url: `https://www.mercadolivre.com.br/p/${results[0].id}`,
+    }
   }
+
+  // o primeiro é o padrão (compat com o resto do app); todos vão em `candidatos`
+  return { matched: true, reason: 'ok', ...candidatos[0], candidatos }
 }
 
 // Monta a BASE de um anúncio para o painel de revisão (NÃO publica nada).
