@@ -658,6 +658,7 @@ function Calculator() {
   const [comp, setComp] = useState(null)
   const [res, setRes] = useState(null)
   const [anuncios, setAnuncios] = useState({ loading: false, data: null })
+  const [anuncioPrep, setAnuncioPrep] = useState({ loading: false, data: null })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
 
@@ -768,6 +769,46 @@ function Calculator() {
     } catch {
       setAnuncios({ loading: false, data: null })
     }
+  }
+
+  // Monta um RASCUNHO do anúncio e mostra na tela para revisão. NÃO publica
+  // nada no Mercado Livre. Junta: o que veio do catálogo do ML (título, fotos,
+  // marca/modelo — quando o produto existe lá), os dados do banco (quantidade,
+  // GTIN, NCM) e o que você digitou manualmente (peso e medidas do passo 3).
+  // Quando o produto não está no catálogo, preenche só com o que houver.
+  async function prepararAnuncio() {
+    setAnuncioPrep({ loading: true, data: null })
+    const catId = comp?.matched ? comp.catalog_id : ''
+    let base = { catalog: null, required_attributes: [] }
+    try {
+      base = await fetch(
+        '/api/anuncio?catalog_id=' + encodeURIComponent(catId || '') +
+        '&category_id=' + encodeURIComponent(f.categoryId || '')
+      ).then((r) => r.json())
+    } catch { /* segue com o que tiver */ }
+
+    const attr = (id) => base.catalog?.attributes?.find((a) => a.id === id)?.value || null
+    const draft = {
+      viaCatalogo: !!base.catalog?.matched,
+      catalogId: catId || null,
+      catalogUrl: comp?.url || null,
+      titulo: base.catalog?.title || produtoDb?.descricao || comp?.name || f.titulo || '',
+      categoriaNome: f.categoryName || null,
+      categoriaId: f.categoryId || null,
+      preco: parseFloat(f.preco) || null,
+      quantidade: produtoDb?.estoque ?? null,
+      tipoAnuncio: LISTING_TYPES.find((t) => t.id === f.listingType)?.label || f.listingType,
+      condicao: 'Novo',
+      marca: attr('BRAND') || produtoDb?.marca || null,
+      modelo: attr('MODEL') || produtoDb?.referencia || null,
+      gtin: produtoDb?.codigo_barras || null,
+      ncm: produtoDb?.ncm || null,
+      pesoKg: parseFloat(f.pesoKg) || null,          // MANUAL (passo 3)
+      dimensoes: (f.alt && f.larg && f.comp) ? `${f.alt} × ${f.larg} × ${f.comp} cm` : null, // MANUAL
+      fotos: base.catalog?.pictures || [],
+      atributosObrigatorios: base.required_attributes || [],
+    }
+    setAnuncioPrep({ loading: false, data: draft })
   }
 
   async function calcular() {
@@ -1140,9 +1181,62 @@ function Calculator() {
                     <b>Sem frete:</b> {res.freight_error ? res.freight_error : 'preencha as medidas da caixa para eu buscar o frete real.'}
                   </div>
                 )}
+                <button className="primary" style={{ marginTop: 14 }} onClick={prepararAnuncio} disabled={anuncioPrep.loading}>
+                  {anuncioPrep.loading ? 'Preparando…' : '📋 Preparar anúncio'}
+                </button>
               </>
             )}
           </div>
+
+          {anuncioPrep.data && (
+            <div className="card">
+              <h2>📋 Rascunho do anúncio <span className="pill">só revisão — não publica</span></h2>
+              {anuncioPrep.data.viaCatalogo ? (
+                <div className="callout" style={{ margin: '0 0 12px' }}>
+                  ✅ <b>Vinculado ao catálogo do ML</b> — título, fotos e atributos vêm prontos do produto no Mercado Livre.
+                  {anuncioPrep.data.catalogUrl && (
+                    <> <a href={anuncioPrep.data.catalogUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb' }}>ver produto ▸</a></>
+                  )}
+                </div>
+              ) : (
+                <div className="callout warn" style={{ margin: '0 0 12px' }}>
+                  ⚠️ <b>Produto não está no catálogo do ML</b> — preenchi com o que havia. Ao publicar, você precisará adicionar as <b>fotos</b> e os atributos obrigatórios.
+                </div>
+              )}
+
+              {anuncioPrep.data.fotos.length > 0 && (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                  {anuncioPrep.data.fotos.slice(0, 6).map((u, i) => (
+                    <img key={i} src={u} alt="" style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 8, border: '1px solid #e5e7eb' }} />
+                  ))}
+                </div>
+              )}
+
+              <div>
+                <div className="brow"><span className="k">Título</span><span className="v">{anuncioPrep.data.titulo || <span className="hint">— a preencher</span>}</span></div>
+                <div className="brow"><span className="k">Categoria</span><span className="v">{anuncioPrep.data.categoriaNome ? `${anuncioPrep.data.categoriaNome} (${anuncioPrep.data.categoriaId})` : <span className="hint">— a preencher</span>}</span></div>
+                <div className="brow"><span className="k">Preço</span><span className="v">{anuncioPrep.data.preco != null ? money(anuncioPrep.data.preco) : <span className="hint">— a preencher</span>}</span></div>
+                <div className="brow"><span className="k">Quantidade (estoque)</span><span className="v">{anuncioPrep.data.quantidade != null ? anuncioPrep.data.quantidade : <span className="hint">— a preencher</span>}</span></div>
+                <div className="brow"><span className="k">Tipo de anúncio</span><span className="v">{anuncioPrep.data.tipoAnuncio}</span></div>
+                <div className="brow"><span className="k">Condição</span><span className="v">{anuncioPrep.data.condicao}</span></div>
+                <div className="brow"><span className="k">Marca</span><span className="v">{anuncioPrep.data.marca || <span className="hint">— a preencher</span>}</span></div>
+                <div className="brow"><span className="k">Modelo</span><span className="v">{anuncioPrep.data.modelo || <span className="hint">— a preencher</span>}</span></div>
+                <div className="brow"><span className="k">GTIN (cód. de barras)</span><span className="v">{anuncioPrep.data.gtin || <span className="hint">— a preencher</span>}</span></div>
+                <div className="brow"><span className="k">Peso (você informou)</span><span className="v">{anuncioPrep.data.pesoKg != null ? `${anuncioPrep.data.pesoKg} kg` : <span className="hint">— a preencher</span>}</span></div>
+                <div className="brow"><span className="k">Dimensões (você informou)</span><span className="v">{anuncioPrep.data.dimensoes || <span className="hint">— a preencher</span>}</span></div>
+                {anuncioPrep.data.ncm && <div className="brow"><span className="k">NCM (nota fiscal)</span><span className="v">{anuncioPrep.data.ncm}</span></div>}
+              </div>
+
+              {anuncioPrep.data.atributosObrigatorios.length > 0 && (
+                <div className="hint" style={{ marginTop: 10 }}>
+                  O ML exige nesta categoria: {anuncioPrep.data.atributosObrigatorios.map((x) => x.name).join(', ')}.
+                </div>
+              )}
+              <div className="hint" style={{ marginTop: 8 }}>
+                Nada foi publicado — isto é só um resumo pronto para anunciar, pra você conferir.
+              </div>
+            </div>
+          )}
 
           {(anuncios.loading || anuncios.data) && (
             <div className="card">

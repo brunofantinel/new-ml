@@ -121,6 +121,42 @@ export async function findCompetitor(query) {
   }
 }
 
+// Monta a BASE de um anúncio para o painel de revisão (NÃO publica nada).
+// Quando o produto existe no catálogo do ML, traz título, fotos e atributos
+// prontos (é o que o ML preencheria sozinho ao anunciar em cima do catálogo).
+// Também lista os atributos obrigatórios da categoria, pra mostrar o que falta.
+export async function getAnuncioBase(catalogId, categoryId) {
+  let catalog = null
+  if (catalogId) {
+    try {
+      const p = await mlGet(`/products/${catalogId}`)
+      catalog = {
+        matched: true,
+        id: catalogId,
+        title: p?.name || null,
+        pictures: (Array.isArray(p?.pictures) ? p.pictures : []).map((x) => x.url).filter(Boolean),
+        attributes: (Array.isArray(p?.attributes) ? p.attributes : [])
+          .filter((a) => a.value_name)
+          .map((a) => ({ id: a.id, name: a.name || a.id, value: a.value_name })),
+      }
+    } catch {
+      catalog = null
+    }
+  }
+  let requiredAttrs = []
+  if (categoryId) {
+    try {
+      const at = await mlGet(`/categories/${categoryId}/attributes`)
+      requiredAttrs = (Array.isArray(at) ? at : [])
+        .filter((a) => a.tags && (a.tags.required || a.tags.catalog_required))
+        .map((a) => ({ id: a.id, name: a.name || a.id }))
+    } catch {
+      requiredAttrs = []
+    }
+  }
+  return { catalog, required_attributes: requiredAttrs }
+}
+
 // Busca um produto no catálogo do ML pelo nome e devolve o "vencedor" (buy box):
 // preço praticado, categoria e tipo de logística. É o preço que você teria que igualar.
 export async function findWinner(query) {
