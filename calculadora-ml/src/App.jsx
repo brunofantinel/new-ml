@@ -669,7 +669,20 @@ function Calculator() {
       ])
       const list = Array.isArray(cd) ? cd : []
       setComp(compD)
-      if (autoPick && list.length) {
+      // A categoria mais confiável é a do CONCORRENTE: é o mesmo produto já
+      // anunciado no ML, então é a categoria que o próprio ML atribuiu. O
+      // domain_discovery é só chute por palavra-chave e erra feio com nomes
+      // ambíguos (ex.: "BLOCO" de montar cai em "Bloco de Motor"). Por isso,
+      // quando há concorrente casado com categoria, usamos a dele e escondemos
+      // os chutes divergentes. O domain_discovery fica só como reserva.
+      if (compD?.matched && compD.category_id) {
+        setF((prev) => ({
+          ...prev,
+          categoryId: compD.category_id,
+          categoryName: compD.category_name || 'mesma do concorrente',
+        }))
+        setCats([])
+      } else if (autoPick && list.length) {
         setF((prev) => ({ ...prev, categoryId: list[0].category_id, categoryName: list[0].category_name }))
         setCats(list.slice(1)) // as outras ficam como alternativas
       } else {
@@ -950,11 +963,14 @@ function Calculator() {
                   <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     <button className="ghost" onClick={() => setF({ ...f, preco: String(comp.price) })}>Usar esse preço</button>
                     {comp.category_id && (
-                      <button className="ghost" onClick={() => setF({ ...f, categoryId: comp.category_id, categoryName: 'mesma do concorrente' })}>Usar a categoria</button>
+                      <button className="ghost" onClick={() => setF({ ...f, categoryId: comp.category_id, categoryName: comp.category_name || 'mesma do concorrente' })}>Usar a categoria</button>
                     )}
                     {comp.url && <a className="ghost link" href={comp.url} target="_blank" rel="noreferrer">Ver no ML ▸</a>}
                   </div>
                   <div className="hint" style={{ marginTop: 6 }}>Produto no ML: {comp.name}</div>
+                  {comp.category_path && (
+                    <div className="hint" style={{ marginTop: 2 }}>Categoria do ML: {comp.category_path}</div>
+                  )}
                 </div>
               ) : (
                 <div className="hint" style={{ marginTop: 8 }}>

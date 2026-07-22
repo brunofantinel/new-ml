@@ -9,6 +9,21 @@ function limparNome(nome) {
     .trim()
 }
 
+// Resolve o nome "de verdade" de uma categoria (e a seção raiz) pela API do ML.
+// Ex.: MLB12443 -> { name: 'Blocos e Formas de Montar',
+//                    path: 'Brinquedos e Hobbies > ... > Blocos e Formas de Montar',
+//                    root: 'Brinquedos e Hobbies' }
+async function categoryInfo(categoryId) {
+  if (!categoryId) return null
+  try {
+    const c = await mlGet(`/categories/${categoryId}`)
+    const path = Array.isArray(c?.path_from_root) ? c.path_from_root.map((p) => p.name) : []
+    return { name: c?.name || null, path: path.join(' > '), root: path[0] || null }
+  } catch {
+    return null
+  }
+}
+
 // Busca um produto no catálogo pelo nome e devolve o MENOR preço praticado hoje
 // (usa /products/{id}/items, que traz preço mesmo sem login de vendedor).
 export async function findCompetitor(query) {
@@ -21,6 +36,7 @@ export async function findCompetitor(query) {
     try {
       const live = await getCatalogLive(cand.id)
       if (live.price != null) {
+        const info = await categoryInfo(live.category_id)
         return {
           matched: true,
           reason: 'ok',
@@ -29,6 +45,8 @@ export async function findCompetitor(query) {
           price: live.price,
           item_id: live.item_id,
           category_id: live.category_id,
+          category_name: info?.name || null,
+          category_path: info?.path || null,
           n_vend: live.n_vend,
           url: `https://www.mercadolivre.com.br/p/${cand.id}`,
         }
