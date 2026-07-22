@@ -710,6 +710,8 @@ function Calculator() {
         const peso = dim.peso_emb_kg || dim.peso_unit_kg
         setF((prev) => ({
           ...prev,
+          // já assume o preço de venda cadastrado no banco (o usuário pode editar)
+          preco: d.preco_venda != null ? String(d.preco_venda) : prev.preco,
           custo: d.custo?.ultimo != null ? String(d.custo.ultimo) : prev.custo,
           titulo: prev.titulo || d.descricao || '',
           pesoKg: peso != null ? String(peso) : prev.pesoKg,

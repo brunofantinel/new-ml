@@ -172,6 +172,24 @@ def consultar_produto(cod):
             except Exception:
                 pass
 
+        # preco de venda de varejo (tabela de preco padrao, condicao 1).
+        # SAC_PREC_VENDA = preco cadastrado; SAC_PREC_PROMOCAO = preco de promocao.
+        preco_venda = None
+        preco_promo = None
+        try:
+            cur.execute(
+                "SELECT FIRST 1 SAC_PREC_VENDA, SAC_PREC_PROMOCAO "
+                "FROM SAC_PREC WHERE SAC_PREC_COD_PROD=? AND SAC_PREC_COND=1 "
+                "ORDER BY SAC_PREC_DATA DESC",
+                (cod,),
+            )
+            pv = cur.fetchone()
+            if pv:
+                preco_venda = num(pv[0])
+                preco_promo = num(pv[1])
+        except Exception:
+            pass
+
         return {
             "encontrado": True,
             "codigo": int(cod),
@@ -187,6 +205,8 @@ def consultar_produto(cod):
             "subgrupo": (subgrupo or "").strip() or None,
             "fornecedor": (fornecedor or "").strip() or None,
             "estoque": estoque,
+            "preco_venda": preco_venda,
+            "preco_promocao": preco_promo,
             "custo": {"ultimo": num(d["_ult_custo"]), "medio": num(d["_custo_medio"])},
             "dimensoes": {
                 "peso_unit_kg": num(d["_peso_unit"]),
