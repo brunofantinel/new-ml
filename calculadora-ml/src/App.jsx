@@ -647,19 +647,32 @@ function avaliarPreco(preco, custo, mercado) {
 
 // Modal que abre a câmera (traseira no celular) e lê o código de barras ao vivo.
 // Funciona em Android e iPhone (Safari/Chrome) via @zxing/browser. Precisa HTTPS.
+// Calibrado: só formatos de barras (EAN/UPC/CODE-128/ITF), TRY_HARDER, resolução
+// alta, quadro de mira e lanterna (onde o aparelho suporta).
 function ScannerModal({ onDetect, onClose }) {
   const videoRef = useRef(null)
+  const trackRef = useRef(null)
   const [err, setErr] = useState(null)
+  const [torchOn, setTorchOn] = useState(false)
+  const [torchOk, setTorchOk] = useState(false)
+
   useEffect(() => {
     let controls = null
     let done = false
     let cancelado = false
     // carrega o leitor sob demanda (mantém o app leve até abrir a câmera)
-    import('@zxing/browser')
-      .then(({ BrowserMultiFormatReader }) => {
+    Promise.all([import('@zxing/browser'), import('@zxing/library')])
+      .then(([{ BrowserMultiFormatReader }, { DecodeHintType, BarcodeFormat }]) => {
         if (cancelado) return
-        const reader = new BrowserMultiFormatReader()
-        return reader.decodeFromConstraints({ video: { facingMode: 'environment' } }, videoRef.current, (result, _e, ctrl) => {
+        const hints = new Map()
+        hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+          BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.UPC_A,
+          BarcodeFormat.UPC_E, BarcodeFormat.CODE_128, BarcodeFormat.ITF,
+        ])
+        hints.set(DecodeHintType.TRY_HARDER, true)
+        const reader = new BrowserMultiFormatReader(hints)
+        const constraints = { video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } }
+        return reader.decodeFromConstraints(constraints, videoRef.current, (result, _e, ctrl) => {
           controls = ctrl
           if (result && !done) {
             done = true
@@ -668,16 +681,53 @@ function ScannerModal({ onDetect, onClose }) {
           }
         })
       })
-      .then((c) => { if (c) controls = c })
+      .then((c) => {
+        if (c) controls = c
+        // detecta suporte a lanterna (torch) no aparelho
+        try {
+          const track = videoRef.current?.srcObject?.getVideoTracks?.()[0]
+          trackRef.current = track
+          if (track?.getCapabilities?.().torch) setTorchOk(true)
+        } catch { /* noop */ }
+      })
       .catch((e) => setErr('Não consegui abrir a câmera. Verifique a permissão e o HTTPS. (' + (e?.message || e) + ')'))
     return () => { cancelado = true; try { controls && controls.stop() } catch { /* noop */ } }
   }, [])
+
+  async function toggleTorch() {
+    const track = trackRef.current
+    if (!track) return
+    try {
+      const novo = !torchOn
+      await track.applyConstraints({ advanced: [{ torch: novo }] })
+      setTorchOn(novo)
+    } catch { /* alguns aparelhos não permitem */ }
+  }
+
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.88)', zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ color: '#fff', marginBottom: 12, fontWeight: 700, textAlign: 'center' }}>Aponte a câmera para o código de barras</div>
-      <video ref={videoRef} style={{ width: '100%', maxWidth: 460, aspectRatio: '4/3', objectFit: 'cover', borderRadius: 12, background: '#000' }} muted playsInline />
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.92)', zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ color: '#fff', marginBottom: 10, fontWeight: 700, textAlign: 'center' }}>Centralize o código na faixa verde</div>
+      <div style={{ position: 'relative', width: '100%', maxWidth: 460, borderRadius: 12, overflow: 'hidden' }}>
+        <video ref={videoRef} style={{ width: '100%', aspectRatio: '3/4', objectFit: 'cover', background: '#000', display: 'block' }} muted playsInline />
+        {/* quadro de mira */}
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+          <div style={{ width: '88%', height: '30%', border: '3px solid #22c55e', borderRadius: 12, boxShadow: '0 0 0 2000px rgba(0,0,0,.45)' }}>
+            <div style={{ position: 'relative', top: '50%', height: 2, background: 'rgba(239,68,68,.9)' }} />
+          </div>
+        </div>
+      </div>
       {err && <div style={{ color: '#fca5a5', marginTop: 12, maxWidth: 460, textAlign: 'center' }}>{err}</div>}
-      <button className="primary" style={{ marginTop: 16 }} onClick={onClose}>Fechar</button>
+      <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+        {torchOk && (
+          <button className="ghost" onClick={toggleTorch} style={{ color: '#fff', borderColor: '#fff' }}>
+            {torchOn ? '🔦 Apagar' : '🔦 Lanterna'}
+          </button>
+        )}
+        <button className="primary" onClick={onClose}>Fechar</button>
+      </div>
+      <div style={{ color: '#cbd5e1', marginTop: 10, fontSize: 12.5, textAlign: 'center', maxWidth: 460 }}>
+        Aproxime até o código preencher a faixa, com boa luz. Segure firme por 1–2 s.
+      </div>
     </div>
   )
 }
