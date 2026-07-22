@@ -1044,16 +1044,28 @@ function Calculator() {
                   <div className="big">{money(lucro)}</div>
                   <div className="pct">{lucroPct.toFixed(1)}% do preço de venda</div>
                 </div>
-                {aval && (
-                  <div className={'callout' + (aval.tone === 'bad' ? ' bad' : aval.tone === 'warn' ? ' warn' : '')} style={{ margin: '12px 0 0' }}>
-                    <b>{aval.titulo}</b>
-                    <div style={{ marginTop: 4 }}>{aval.msg}</div>
-                    <div className="hint" style={{ marginTop: 6 }}>
-                      No ML: menor {money(anuncios.data.preco.min)} · média {money(anuncios.data.preco.mediana)} · maior {money(anuncios.data.preco.max)}
-                      {anuncios.data.n_vendedores ? ` · ${anuncios.data.n_vendedores} anúncio${anuncios.data.n_vendedores === 1 ? '' : 's'}` : ''}
+                {aval && (() => {
+                  const c = {
+                    good: { bg: '#dcfce7', bd: '#16a34a', fg: '#14532d' },
+                    ok: { bg: '#dbeafe', bd: '#2563eb', fg: '#1e3a8a' },
+                    warn: { bg: '#fef3c7', bd: '#d97706', fg: '#7c2d12' },
+                    bad: { bg: '#fee2e2', bd: '#dc2626', fg: '#7f1d1d' },
+                  }[aval.tone] || { bg: '#f1f5f9', bd: '#64748b', fg: '#0f172a' }
+                  return (
+                    <div style={{
+                      margin: '14px 0 4px', padding: '16px 18px', borderRadius: 14,
+                      background: c.bg, border: `2px solid ${c.bd}`, borderLeft: `10px solid ${c.bd}`,
+                      boxShadow: '0 2px 10px rgba(0,0,0,.08)',
+                    }}>
+                      <div style={{ fontSize: 19, fontWeight: 800, color: c.fg, lineHeight: 1.2 }}>{aval.titulo}</div>
+                      <div style={{ marginTop: 8, fontSize: 15, fontWeight: 600, color: c.fg }}>{aval.msg}</div>
+                      <div style={{ marginTop: 10, fontSize: 12.5, color: c.fg, opacity: .85 }}>
+                        No ML: menor <b>{money(anuncios.data.preco.min)}</b> · média <b>{money(anuncios.data.preco.mediana)}</b> · maior <b>{money(anuncios.data.preco.max)}</b>
+                        {anuncios.data.n_vendedores ? ` · ${anuncios.data.n_vendedores} anúncio${anuncios.data.n_vendedores === 1 ? '' : 's'}` : ''}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )
+                })()}
                 {res && !mercado && anuncios.loading && (
                   <div className="hint" style={{ margin: '10px 0 0' }}>Comparando com os anúncios do ML…</div>
                 )}
