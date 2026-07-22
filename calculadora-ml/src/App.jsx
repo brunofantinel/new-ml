@@ -1216,19 +1216,9 @@ function Calculator() {
               </div>
               <div className="hint">Sem as medidas eu calculo comissão e custo fixo, mas não consigo o frete real.</div>
             </div>
-            <label className="check">
-              <input type="checkbox" checked={f.freteGratis} onChange={upd('freteGratis')} />
-              Vou oferecer frete grátis (abaixo de R$79 é opcional)
-            </label>
-            <div className="field" style={{ marginTop: 12, marginBottom: 0 }}>
-              <label>Sua reputação no ML (só p/ estimativa, quando a conta não está conectada)</label>
-              <select value={f.reputacao} onChange={upd('reputacao')}>
-                {REPUTACOES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
-              </select>
-              <div className="hint">
-                Com a conta de vendedor conectada, o frete vem <b>real do Mercado Livre</b>, já com os seus descontos e o peso volumétrico. Esta reputação só é usada na <b>estimativa</b> de reserva (conta desconectada). Regra mar/2026: de R$19 a R$78,99 o ML cobre 100% do frete; acima de R$79 o frete grátis é obrigatório com desconto por reputação.
-              </div>
-            </div>
+            {/* Conta no programa Decola: o ML trata a loja como reputação Verde e o frete
+                grátis é sempre assumido. Por isso freteGratis e reputacao ficam fixos no
+                estado (true / '0.4') e não aparecem mais como controles na tela. */}
           </div>
 
           <button className="primary" onClick={calcular} disabled={busy}>
