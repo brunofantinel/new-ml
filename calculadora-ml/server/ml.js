@@ -195,18 +195,27 @@ export async function getFees(q) {
   const fixedFee = sale.fixed_fee ?? 0
   const percentageFee = sale.percentage_fee ?? null
 
-  // medidas da caixa (para o peso volumétrico) — formato "AxLxC,pesoG"
-  let alturaCm = 0, larguraCm = 0, comprimentoCm = 0
-  if (q.dimensions) {
-    const dims = String(q.dimensions).split(',')[0]
-    const [a, l, c] = dims.split('x').map((n) => Number(n) || 0)
-    alturaCm = a; larguraCm = l; comprimentoCm = c
-  }
-  const descontoReputacao = q.reputation_discount ? Number(q.reputation_discount) : 0
+  const offerFree = q.free_shipping !== 'false'
 
-  let freight = null
-  if (weightGrams > 0) {
-    freight = estimarFrete(price, weightGrams / 1000, logisticType, q.free_shipping !== 'false', {
+  // 1) FRETE REAL da conta do vendedor (API oficial), quando conectado. Já vem
+  //    com o desconto real da reputação e o peso volumétrico calculado pela ML.
+  let freight = null, freightSource = 'estimate'
+  const real = await getRealFreight({ price, listingType, logisticType, weightGrams, dimensions: q.dimensions })
+  if (real) {
+    freightSource = 'api'
+    if (real.free_by_meli) freight = 0                    // ML cobre 100% (faixa subsidiada)
+    else if (price >= 79 || offerFree) freight = real.list_cost  // vendedor paga o custo real
+    else freight = 0                                      // abaixo de 79 e sem frete grátis: comprador paga
+  } else if (weightGrams > 0) {
+    // 2) FALLBACK: estimativa (peso volumétrico + desconto de reputação escolhido)
+    let alturaCm = 0, larguraCm = 0, comprimentoCm = 0
+    if (q.dimensions) {
+      const dims = String(q.dimensions).split(',')[0]
+      const [a, l, c] = dims.split('x').map((n) => Number(n) || 0)
+      alturaCm = a; larguraCm = l; comprimentoCm = c
+    }
+    const descontoReputacao = q.reputation_discount ? Number(q.reputation_discount) : 0
+    freight = estimarFrete(price, weightGrams / 1000, logisticType, offerFree, {
       alturaCm, larguraCm, comprimentoCm, descontoReputacao,
     })
   }
@@ -214,6 +223,44 @@ export async function getFees(q) {
   return {
     price, listing_type: listingType, logistic_type: logisticType, category_used: categoriaUsada,
     commission_total: commissionTotal, fixed_fee: fixedFee, percentage_fee: percentageFee,
-    freight, freight_is_estimate: freight != null,
+    freight, freight_source: freightSource, freight_is_estimate: freightSource === 'estimate',
+    freight_free_by_meli: real?.free_by_meli ?? null,
+    billable_weight: real?.billable_weight ?? null,
+  }
+}
+
+// Frete REAL que sai do bolso do vendedor, pela API oficial
+// GET /users/{uid}/shipping_options/free — retorna o custo de oferecer frete
+// grátis JÁ com os descontos reais da conta (reputação/loyalty) e o peso
+// cobrável (maior entre real e volumétrico) calculado pela própria ML.
+// Retorna null se não houver vendedor conectado ou se a chamada falhar (o
+// getFees então cai na estimativa).
+export async function getRealFreight({ price, listingType, logisticType, weightGrams, dimensions }) {
+  const uid = authStatus().user_id
+  if (!uid) return null
+  if (!weightGrams && !dimensions) return null
+  // a API exige dimensions "AxLxC,pesoG"; sem medidas, usa caixa mínima + peso
+  const dim = dimensions && /^\d+x\d+x\d+,/.test(dimensions) ? dimensions : `1x1x1,${weightGrams || 0}`
+  const qs = new URLSearchParams({
+    dimensions: dim,
+    item_price: String(price),
+    listing_type_id: listingType,
+    logistic_type: logisticType,
+    condition: 'new',
+    mode: 'me2',
+    verbose: 'true',
+  })
+  try {
+    const r = await mlGet(`/users/${uid}/shipping_options/free?${qs.toString()}`)
+    const c = r?.coverage?.all_country
+    if (!c || c.list_cost == null) return null
+    return {
+      list_cost: Number(c.list_cost),
+      free_by_meli: !!c.free_shipping_by_meli,
+      billable_weight: c.billable_weight ?? null,
+      discount: c.discount ?? null,
+    }
+  } catch {
+    return null
   }
 }

@@ -1063,12 +1063,12 @@ function Calculator() {
               Vou oferecer frete grátis (abaixo de R$79 é opcional)
             </label>
             <div className="field" style={{ marginTop: 12, marginBottom: 0 }}>
-              <label>Sua reputação no ML (desconta o frete acima de R$79)</label>
+              <label>Sua reputação no ML (só p/ estimativa, quando a conta não está conectada)</label>
               <select value={f.reputacao} onChange={upd('reputacao')}>
                 {REPUTACOES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
               </select>
               <div className="hint">
-                Na regra nova (mar/2026), de R$19 a R$78,99 o Mercado Livre cobre 100% do frete; acima de R$79 o frete grátis é obrigatório, com desconto por reputação. Percentuais por medalha são aproximados.
+                Com a conta de vendedor conectada, o frete vem <b>real do Mercado Livre</b>, já com os seus descontos e o peso volumétrico. Esta reputação só é usada na <b>estimativa</b> de reserva (conta desconectada). Regra mar/2026: de R$19 a R$78,99 o ML cobre 100% do frete; acima de R$79 o frete grátis é obrigatório com desconto por reputação.
               </div>
             </div>
           </div>
@@ -1096,14 +1096,20 @@ function Calculator() {
                   <div className="brow"><span className="k">− Comissão do Mercado Livre</span><span className="v">− {money(comissao)}</span></div>
                   <div className="brow sub"><span className="k">↳ dentro dela, taxa fixa por venda</span><span className="v">{res.fixed_fee > 0 ? money(res.fixed_fee) : '—'}</span></div>
                   <div className="brow">
-                    <span className="k">− Frete que sai do seu bolso</span>
+                    <span className="k">− Frete que sai do seu bolso{res.freight_source === 'estimate' && res.freight != null ? ' (estimado)' : ''}</span>
                     <span className="v">{res.freight == null ? '?' : '− ' + money(res.freight)}</span>
                   </div>
-                  {res.freight === 0 && preco >= 19 && preco < 79 && (
+                  {res.freight_free_by_meli && (
+                    <div className="brow sub"><span className="k">↳ o Mercado Livre cobre 100% do frete (faixa R$19–78,99)</span><span className="v" /></div>
+                  )}
+                  {!res.freight_free_by_meli && res.freight_source === 'api' && res.freight > 0 && (
+                    <div className="brow sub"><span className="k">↳ frete real da sua conta no ML — já com os seus descontos</span><span className="v" /></div>
+                  )}
+                  {res.freight_source === 'estimate' && res.freight === 0 && preco >= 19 && preco < 79 && (
                     <div className="brow sub"><span className="k">↳ faixa R$19–78,99: o Mercado Livre cobre 100% do frete</span><span className="v" /></div>
                   )}
-                  {res.freight > 0 && preco >= 79 && f.reputacao !== '0' && (
-                    <div className="brow sub"><span className="k">↳ já com ~{Math.round(Number(f.reputacao) * 100)}% de desconto pela sua reputação</span><span className="v" /></div>
+                  {res.freight_source === 'estimate' && res.freight > 0 && preco >= 79 && f.reputacao !== '0' && (
+                    <div className="brow sub"><span className="k">↳ estimado com ~{Math.round(Number(f.reputacao) * 100)}% de desconto de reputação</span><span className="v" /></div>
                   )}
                   <div className="brow"><span className="k">− Impostos do governo (federais, {IMPOSTO_PCT}%)</span><span className="v">− {money(impostoFederalVal)}</span></div>
                   {fic && fic.st ? (
