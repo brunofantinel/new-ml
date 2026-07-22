@@ -606,6 +606,45 @@ function Mercado() {
   )
 }
 
+// Avalia o quão competitivo está o SEU preço de venda vs a média dos anúncios
+// ativos do mesmo produto no Mercado Livre. mercado = { min, mediana, max }.
+// Devolve { tone, titulo, msg } ou null se não houver mercado pra comparar.
+function avaliarPreco(preco, custo, mercado) {
+  const m = mercado?.mediana
+  if (!preco || !m) return null
+  const diff = (preco - m) / m // > 0 = mais caro que a média do mercado
+  const pctTxt = `${Math.abs(diff * 100).toFixed(0)}%`
+
+  // O mercado já vende abaixo do seu custo: competir dá prejuízo.
+  if (custo > 0 && m < custo) {
+    return {
+      tone: 'bad',
+      titulo: '🛑 Não compensa vender',
+      msg: `No ML a média é ~${money(m)}, abaixo do seu custo (${money(custo)}). Não dá pra competir sem sair no prejuízo.`,
+    }
+  }
+  if (diff <= -0.20) return {
+    tone: 'good', titulo: '🚀 Grande potencial de venda!',
+    msg: `Seu preço (${money(preco)}) está ${pctTxt} abaixo da média dos anúncios (${money(m)}). Tende a vender rápido.`,
+  }
+  if (diff <= -0.05) return {
+    tone: 'good', titulo: '👍 Preço competitivo',
+    msg: `Está ${pctTxt} abaixo da média do ML (${money(m)}). Boa posição pra vender.`,
+  }
+  if (diff <= 0.05) return {
+    tone: 'ok', titulo: '➖ Na média do mercado',
+    msg: `Seu preço está bem próximo da média dos anúncios (${money(m)}).`,
+  }
+  if (diff <= 0.20) return {
+    tone: 'warn', titulo: '⚠️ Um pouco caro',
+    msg: `Está ${pctTxt} acima da média (${money(m)}). Pode vender mais devagar.`,
+  }
+  return {
+    tone: 'bad', titulo: '🛑 Muito caro pro mercado',
+    msg: `Está ${pctTxt} acima da média dos anúncios (${money(m)}). Difícil vender — considere baixar o preço.`,
+  }
+}
+
 function Calculator() {
   const [f, setF] = useState({
     titulo: '',
@@ -814,6 +853,9 @@ function Calculator() {
   // Sobra = preço − custo − comissão − frete.
   const lucro = res ? preco - custo - comissao - frete : 0
   const lucroPct = res && preco > 0 ? (lucro / preco) * 100 : 0
+  // posicionamento do seu preço vs a média dos anúncios do mesmo produto no ML
+  const mercado = anuncios.data?.matched && anuncios.data?.preco?.mediana != null ? anuncios.data.preco : null
+  const aval = res ? avaliarPreco(preco, custo, mercado) : null
 
   return (
     <>
@@ -1002,6 +1044,24 @@ function Calculator() {
                   <div className="big">{money(lucro)}</div>
                   <div className="pct">{lucroPct.toFixed(1)}% do preço de venda</div>
                 </div>
+                {aval && (
+                  <div className={'callout' + (aval.tone === 'bad' ? ' bad' : aval.tone === 'warn' ? ' warn' : '')} style={{ margin: '12px 0 0' }}>
+                    <b>{aval.titulo}</b>
+                    <div style={{ marginTop: 4 }}>{aval.msg}</div>
+                    <div className="hint" style={{ marginTop: 6 }}>
+                      No ML: menor {money(anuncios.data.preco.min)} · média {money(anuncios.data.preco.mediana)} · maior {money(anuncios.data.preco.max)}
+                      {anuncios.data.n_vendedores ? ` · ${anuncios.data.n_vendedores} anúncio${anuncios.data.n_vendedores === 1 ? '' : 's'}` : ''}
+                    </div>
+                  </div>
+                )}
+                {res && !mercado && anuncios.loading && (
+                  <div className="hint" style={{ margin: '10px 0 0' }}>Comparando com os anúncios do ML…</div>
+                )}
+                {res && !mercado && !anuncios.loading && anuncios.data && (
+                  <div className="hint" style={{ margin: '10px 0 0' }}>
+                    Sem anúncios ativos desse produto no ML pra comparar o preço. Preencha o título no passo 2 pra eu achar.
+                  </div>
+                )}
                 <div>
                   <div className="brow"><span className="k">Você vende por</span><span className="v">{money(preco)}</span></div>
                   <div className="brow"><span className="k">− Quanto o produto te custou</span><span className="v">− {money(custo)}</span></div>
