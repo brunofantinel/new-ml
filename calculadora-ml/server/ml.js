@@ -195,8 +195,21 @@ export async function getFees(q) {
   const fixedFee = sale.fixed_fee ?? 0
   const percentageFee = sale.percentage_fee ?? null
 
+  // medidas da caixa (para o peso volumétrico) — formato "AxLxC,pesoG"
+  let alturaCm = 0, larguraCm = 0, comprimentoCm = 0
+  if (q.dimensions) {
+    const dims = String(q.dimensions).split(',')[0]
+    const [a, l, c] = dims.split('x').map((n) => Number(n) || 0)
+    alturaCm = a; larguraCm = l; comprimentoCm = c
+  }
+  const descontoReputacao = q.reputation_discount ? Number(q.reputation_discount) : 0
+
   let freight = null
-  if (weightGrams > 0) freight = estimarFrete(price, weightGrams / 1000, logisticType, q.free_shipping !== 'false')
+  if (weightGrams > 0) {
+    freight = estimarFrete(price, weightGrams / 1000, logisticType, q.free_shipping !== 'false', {
+      alturaCm, larguraCm, comprimentoCm, descontoReputacao,
+    })
+  }
 
   return {
     price, listing_type: listingType, logistic_type: logisticType, category_used: categoriaUsada,

@@ -27,19 +27,48 @@ const FREIGHT_TABLE = [
 
 const priceCol = (p) => { for (let i = 0; i < PRICE_BRACKETS.length; i++) if (p <= PRICE_BRACKETS[i]) return i; return PRICE_BRACKETS.length - 1 }
 const weightRow = (w) => { for (let i = 0; i < FREIGHT_TABLE.length; i++) if (w <= FREIGHT_TABLE[i][0]) return i; return FREIGHT_TABLE.length - 1 }
+const round2 = (n) => Math.round(n * 100) / 100
+const tabela = (pesoKg, preco) => FREIGHT_TABLE[weightRow(pesoKg)][priceCol(preco) + 1]
 
 // logistic_type do ML -> nosso agrupamento
 const FLEX = new Set(['self_service'])
 
-export function estimarFrete(preco, pesoKg, logisticType, ofereceFreteGratis) {
+// Estima o frete que sai do bolso do VENDEDOR, já com as regras da reforma do
+// Mercado Livre de 02/03/2026:
+//   - abaixo de R$19: sem subsídio (frete grátis = vendedor paga; senão o
+//     comprador paga e o custo do vendedor é 0);
+//   - R$19 a R$78,99: o ML cobre 100% do frete padrão → custo 0 pro vendedor;
+//   - R$79+: frete grátis obrigatório; o vendedor paga a tabela, com desconto
+//     de reputação de ATÉ 70% (medalha da loja).
+// O peso cobrável é o MAIOR entre o peso real e o volumétrico ((A×L×C)/6000).
+// opts: { alturaCm, larguraCm, comprimentoCm, descontoReputacao (0..0.7) }
+export function estimarFrete(preco, pesoRealKg, logisticType, ofereceFreteGratis, opts = {}) {
+  const { alturaCm, larguraCm, comprimentoCm, descontoReputacao = 0 } = opts
+
+  // peso cobrável = maior entre o real e o volumétrico
+  let pesoKg = Number(pesoRealKg) || 0
+  if (alturaCm > 0 && larguraCm > 0 && comprimentoCm > 0) {
+    const volKg = (alturaCm * larguraCm * comprimentoCm) / 6000
+    pesoKg = Math.max(pesoKg, volKg)
+  }
+
   if (FLEX.has(logisticType)) {
+    // Flex: o vendedor entrega e o ML paga um valor — modelo próprio, mantido
+    // como aproximação por faixa (não entra na regra de subsídio acima).
     if (preco < 19) return 6.25
     if (preco <= 48.99) return 6.65
     if (preco <= 78.99) return 7.75
     return null // acima de R$79 no Flex o custo real não é público
   }
+
   // Coleta / Agência / Full
-  const abaixoLimite = preco < 79
-  if (abaixoLimite && !ofereceFreteGratis) return 0 // comprador paga
-  return FREIGHT_TABLE[weightRow(pesoKg)][priceCol(preco) + 1]
+  if (preco < 19) {
+    return ofereceFreteGratis ? tabela(pesoKg, preco) : 0 // sem subsídio nessa faixa
+  }
+  if (preco < 79) {
+    return 0 // faixa R$19–78,99: ML cobre 100% do frete padrão
+  }
+  // R$79+: vendedor paga, com desconto de reputação (teto de 70%)
+  const desc = Math.min(Math.max(Number(descontoReputacao) || 0, 0), 0.7)
+  return round2(tabela(pesoKg, preco) * (1 - desc))
 }

@@ -16,6 +16,16 @@ const LOGISTIC_TYPES = [
   { id: 'self_service', label: 'Flex', desc: 'Você (ou um motoboy) entrega no mesmo dia na sua região. O Mercado Livre te paga um valor por cada entrega.' },
 ]
 
+// Desconto de frete por reputação (regra de 02/03/2026: até 70% acima de R$79).
+// Os percentuais por medalha são aproximados — confirme no seu painel do ML.
+const REPUTACOES = [
+  { id: '0', label: 'Sem reputação / vermelha–laranja (sem desconto)', desc: 0 },
+  { id: '0.2', label: 'Amarela (~20% de desconto)', desc: 0.2 },
+  { id: '0.4', label: 'Verde (~40% de desconto)', desc: 0.4 },
+  { id: '0.55', label: 'MercadoLíder (~55% de desconto)', desc: 0.55 },
+  { id: '0.7', label: 'MercadoLíder Platinum (~70% de desconto)', desc: 0.7 },
+]
+
 const pct = (v) => (v == null ? '—' : (v < 0 ? '-' : '') + Math.abs(v * 100).toFixed(1) + '%')
 
 // Nível de reputação do vendedor no Mercado Livre (termômetro verde→vermelho).
@@ -637,6 +647,7 @@ function Calculator() {
     alt: '', larg: '', comp: '',
     pesoKg: '0.3',
     freteGratis: true,
+    reputacao: '0.4', // padrão: reputação verde
   })
   const [fiscal, setFiscal] = useState({ loading: false, data: null, err: null })
   const [produtoDb, setProdutoDb] = useState(null) // resultado ao vivo do /api/produto (agente do ERP)
@@ -776,6 +787,8 @@ function Calculator() {
       if (f.categoryId) q.set('category_id', f.categoryId)
       // dimensões só se preenchidas (formato: altura x largura x comprimento, peso_g)
       if (f.alt && f.larg && f.comp) q.set('dimensions', `${f.alt}x${f.larg}x${f.comp},${pesoG}`)
+      // desconto de frete por reputação (aplicado acima de R$79)
+      if (f.reputacao && f.reputacao !== '0') q.set('reputation_discount', f.reputacao)
 
       const d = await fetch('/api/fees?' + q.toString()).then((r) => r.json())
       if (d.error) throw new Error(d.detail?.message || d.error)
@@ -1049,6 +1062,15 @@ function Calculator() {
               <input type="checkbox" checked={f.freteGratis} onChange={upd('freteGratis')} />
               Vou oferecer frete grátis (abaixo de R$79 é opcional)
             </label>
+            <div className="field" style={{ marginTop: 12, marginBottom: 0 }}>
+              <label>Sua reputação no ML (desconta o frete acima de R$79)</label>
+              <select value={f.reputacao} onChange={upd('reputacao')}>
+                {REPUTACOES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+              </select>
+              <div className="hint">
+                Na regra nova (mar/2026), de R$19 a R$78,99 o Mercado Livre cobre 100% do frete; acima de R$79 o frete grátis é obrigatório, com desconto por reputação. Percentuais por medalha são aproximados.
+              </div>
+            </div>
           </div>
 
           <button className="primary" onClick={calcular} disabled={busy}>
@@ -1077,6 +1099,12 @@ function Calculator() {
                     <span className="k">− Frete que sai do seu bolso</span>
                     <span className="v">{res.freight == null ? '?' : '− ' + money(res.freight)}</span>
                   </div>
+                  {res.freight === 0 && preco >= 19 && preco < 79 && (
+                    <div className="brow sub"><span className="k">↳ faixa R$19–78,99: o Mercado Livre cobre 100% do frete</span><span className="v" /></div>
+                  )}
+                  {res.freight > 0 && preco >= 79 && f.reputacao !== '0' && (
+                    <div className="brow sub"><span className="k">↳ já com ~{Math.round(Number(f.reputacao) * 100)}% de desconto pela sua reputação</span><span className="v" /></div>
+                  )}
                   <div className="brow"><span className="k">− Impostos do governo (federais, {IMPOSTO_PCT}%)</span><span className="v">− {money(impostoFederalVal)}</span></div>
                   {fic && fic.st ? (
                     <div className="brow"><span className="k">− ICMS (imposto do estado) — já veio pago na compra</span><span className="v">− {money(0)}</span></div>
