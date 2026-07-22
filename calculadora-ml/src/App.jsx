@@ -99,7 +99,6 @@ export default function App() {
     <div className="wrap">
       <nav className="tabs">
         <button className={view === 'calc' ? 'tab on' : 'tab'} onClick={() => setView('calc')}>Calculadora</button>
-        <button className={view === 'produto' ? 'tab on' : 'tab'} onClick={() => setView('produto')}>Consultar produto</button>
         <button className={view === 'mercado' ? 'tab on' : 'tab'} onClick={() => setView('mercado')}>Pesquisa de mercado</button>
         <button className={view === 'vantagens' ? 'tab on' : 'tab'} onClick={() => setView('vantagens')}>Vantagens no ML</button>
       </nav>
@@ -108,8 +107,6 @@ export default function App() {
         <Vantagens />
       ) : view === 'mercado' ? (
         <Mercado />
-      ) : view === 'produto' ? (
-        <Produto />
       ) : (
         <>
           <div className="eyebrow">Taxas reais · API oficial do Mercado Livre</div>
@@ -317,142 +314,6 @@ function Vantagens() {
   )
 }
 
-function Linha({ k, v }) {
-  if (v == null || v === '' ) return null
-  return <div className="brow"><span className="k">{k}</span><span className="v">{v}</span></div>
-}
-
-function Produto() {
-  const [cod, setCod] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [p, setP] = useState(null)
-  const [msg, setMsg] = useState(null)
-
-  async function consultar() {
-    const c = cod.trim()
-    if (!c) return
-    setBusy(true); setMsg(null); setP(null)
-    try {
-      const d = await fetch('/api/produto?cod=' + encodeURIComponent(c)).then((r) => r.json())
-      if (d.encontrado) setP(d)
-      else setMsg({
-        erp_nao_configurado: 'A conexão com o sistema da loja ainda não foi configurada (ERP_API_URL no servidor).',
-        erp_indisponivel: 'O agente da loja está offline. Confira se o computador da loja está ligado e o agente rodando.',
-        erp_timeout: 'O sistema da loja demorou para responder. Tente de novo.',
-        codigo_invalido: 'Digite um código numérico.',
-      }[d.erro] || `Não achei nenhum produto com o código ${c}.`)
-    } catch {
-      setMsg('Não consegui consultar agora. Tente de novo.')
-    }
-    setBusy(false)
-  }
-
-  const dim = p?.dimensoes || {}
-  const imp = p?.impostos_cadastro || {}
-  const fe = p?.fiscal_entrada
-
-  return (
-    <>
-      <div className="eyebrow">Direto do sistema da loja · em tempo real</div>
-      <h1>Consultar produto</h1>
-      <p className="sub">
-        Digite o <b>código interno</b> do produto e veja tudo que o sistema da loja tem sobre ele — descrição, marca,
-        NCM, impostos, custo e estoque, na hora.
-      </p>
-
-      <div className="card">
-        <div className="row-inline">
-          <div className="field" style={{ flex: 1 }}>
-            <input
-              placeholder="código interno do produto (ex: 4346)"
-              value={cod}
-              inputMode="numeric"
-              onChange={(e) => setCod(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') consultar() }}
-            />
-          </div>
-          <button className="primary" onClick={consultar} disabled={busy}>
-            {busy ? 'Consultando…' : 'Consultar'}
-          </button>
-        </div>
-        {msg && <div className="callout warn" style={{ marginTop: 10 }}>{msg}</div>}
-      </div>
-
-      {p && (
-        <>
-          <div className="card">
-            <div className="mkt-name" style={{ fontSize: 17 }}>{p.descricao}</div>
-            <div className="hint" style={{ marginTop: 2 }}>
-              código {p.codigo}{p.marca ? ` · ${p.marca}` : ''}{p.referencia ? ` · ref ${p.referencia}` : ''}
-            </div>
-            <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <span className={'pill ' + (p.ativo ? '' : 'bad')}>{p.ativo ? 'Ativo' : 'Inativo'}</span>
-              {p.fora_linha && <span className="pill warn">Fora de linha</span>}
-              {fe?.st && <span className="pill">Substituição Tributária</span>}
-            </div>
-          </div>
-
-          <div className="grid">
-            <div className="card">
-              <h2>Identificação</h2>
-              <Linha k="Código de barras" v={p.codigo_barras} />
-              <Linha k="NCM" v={p.ncm} />
-              <Linha k="CEST" v={p.cest} />
-              <Linha k="Unidade" v={p.unidade} />
-              <Linha k="Grupo" v={p.grupo} />
-              <Linha k="Subgrupo" v={p.subgrupo} />
-              <Linha k="Fornecedor" v={p.fornecedor} />
-              <Linha k="Cadastrado em" v={p.dt_cadastro && new Date(p.dt_cadastro).toLocaleDateString('pt-BR')} />
-            </div>
-
-            <div className="card">
-              <h2>Custo e estoque</h2>
-              <Linha k="Último custo" v={p.custo?.ultimo != null ? money(p.custo.ultimo) : null} />
-              <Linha k="Custo médio" v={p.custo?.medio != null ? money(p.custo.medio) : null} />
-              <Linha k="Estoque" v={p.estoque != null ? `${p.estoque.toLocaleString('pt-BR')} ${p.unidade || ''}`.trim() : '—'} />
-              <h2 style={{ marginTop: 16 }}>Dimensões</h2>
-              <Linha k="Peso (un.)" v={dim.peso_unit_kg ? `${dim.peso_unit_kg} kg` : null} />
-              <Linha k="Peso embalado" v={dim.peso_emb_kg ? `${dim.peso_emb_kg} kg` : null} />
-              <Linha k="Alt × Larg × Comp" v={(dim.altura_cm || dim.largura_cm || dim.comprimento_cm) ? `${dim.altura_cm || 0} × ${dim.largura_cm || 0} × ${dim.comprimento_cm || 0} cm` : null} />
-              {!dim.peso_unit_kg && !dim.peso_emb_kg && !dim.altura_cm && <div className="hint">Sem medidas cadastradas.</div>}
-            </div>
-          </div>
-
-          <div className="card">
-            <h2>Impostos</h2>
-            {fe ? (
-              <div className="callout" style={{ marginBottom: 12 }}>
-                {fe.st
-                  ? <>🟢 Comprado com <b>Substituição Tributária</b> — ICMS já pago na compra (revenda = 0).</>
-                  : <>🧾 <b>Não-ST</b> — ICMS de compra (crédito) <b>{fe.icms_compra_pct}%</b> · CFOP {fe.cfop_entrada}.</>}
-                {fe.dt_entrada && <div className="hint" style={{ marginTop: 4 }}>Baseado na última nota de entrada de {new Date(fe.dt_entrada).toLocaleDateString('pt-BR')}.</div>}
-              </div>
-            ) : (
-              <div className="hint" style={{ marginBottom: 12 }}>Sem nota de entrada registrada para este produto.</div>
-            )}
-            <Linha k="ICMS (cadastro)" v={imp.icms_pct != null ? `${imp.icms_pct}%` : null} />
-            <Linha k="CSOSN" v={imp.csosn} />
-            <Linha k="Substituição tributária (cadastro)" v={imp.subtrib_pct ? `${imp.subtrib_pct}%` : null} />
-            <Linha k="PIS" v={imp.pis_pct != null ? `${imp.pis_pct}%` : null} />
-            <Linha k="COFINS" v={imp.cofins_pct != null ? `${imp.cofins_pct}%` : null} />
-            <Linha k="IPI" v={imp.ipi_pct != null ? `${imp.ipi_pct}%` : null} />
-            <Linha k="CST IPI" v={imp.cst_ipi} />
-            <Linha k="CFOP (cadastro)" v={imp.cfop} />
-          </div>
-
-          {p.observacao && (
-            <div className="card"><h2>Observação</h2><div className="hint">{p.observacao}</div></div>
-          )}
-        </>
-      )}
-
-      <footer>
-        Dados lidos ao vivo do sistema da loja (somente leitura). Precisa do agente local ligado e do túnel ativo.
-      </footer>
-    </>
-  )
-}
-
 function Nivel({ level }) {
   const n = nivelInfo(level)
   return (
@@ -637,7 +498,6 @@ function Calculator() {
     categoryName: '',
     preco: '49.90',
     custo: '15.00',
-    codigo: '',
     ufDestino: UF_ORIGEM,
     impostoManual: false,
     manualSt: false,
@@ -649,10 +509,6 @@ function Calculator() {
     freteGratis: true,
     reputacao: '0.4', // padrão: reputação verde
   })
-  const [fiscal, setFiscal] = useState({ loading: false, data: null, err: null })
-  const [produtoDb, setProdutoDb] = useState(null) // resultado ao vivo do /api/produto (agente do ERP)
-  const [dbBusy, setDbBusy] = useState(false)
-  const [dbMsg, setDbMsg] = useState(null)
   const [cats, setCats] = useState([])
   const [predicting, setPredicting] = useState(false)
   const [comp, setComp] = useState(null)
@@ -705,65 +561,15 @@ function Calculator() {
     setF((prev) => ({ ...prev, categoryId: c.category_id, categoryName: c.category_name }))
   }
 
-  // Puxa TUDO do banco da loja (agente ao vivo) pelo código interno e preenche
-  // os campos: custo (último), peso, medidas e o ST/ICMS real da última nota de
-  // entrada. Se o agente estiver offline ou o produto não existir, cai no
-  // snapshot de impostos (/api/imposto) como reserva.
-  async function puxarDoBanco() {
-    const c = f.codigo.trim().replace(/\D/g, '')
-    if (!c) return
-    setDbBusy(true); setDbMsg(null); setProdutoDb(null)
-    setFiscal({ loading: false, data: null, err: null })
-    try {
-      const d = await fetch('/api/produto?cod=' + encodeURIComponent(c)).then((r) => r.json())
-      if (d.encontrado) {
-        setProdutoDb(d)
-        const dim = d.dimensoes || {}
-        const peso = dim.peso_emb_kg || dim.peso_unit_kg
-        setF((prev) => ({
-          ...prev,
-          // já assume o preço de venda cadastrado no banco (o usuário pode editar)
-          preco: d.preco_venda != null ? String(d.preco_venda) : prev.preco,
-          custo: d.custo?.ultimo != null ? String(d.custo.ultimo) : prev.custo,
-          titulo: prev.titulo || d.descricao || '',
-          pesoKg: peso != null ? String(peso) : prev.pesoKg,
-          alt: dim.altura_cm != null ? String(dim.altura_cm) : prev.alt,
-          larg: dim.largura_cm != null ? String(dim.largura_cm) : prev.larg,
-          comp: dim.comprimento_cm != null ? String(dim.comprimento_cm) : prev.comp,
-          impostoManual: false, // passa a usar o ICMS real do banco
-        }))
-        // já tenta descobrir a categoria/comissão e o concorrente pela descrição
-        if (d.descricao) predict(d.descricao, true)
-      } else {
-        // reserva: snapshot de impostos por código/NCM
-        const snap = await fetch('/api/imposto?cod=' + encodeURIComponent(c)).then((r) => r.json()).catch(() => null)
-        if (snap?.encontrado) setFiscal({ loading: false, data: snap, err: null })
-        setDbMsg({
-          erp_nao_configurado: 'A conexão com o banco da loja ainda não foi configurada no servidor.',
-          erp_indisponivel: 'O agente da loja está offline' + (snap?.encontrado ? ' — usei o snapshot de impostos como reserva.' : '.'),
-          erp_timeout: 'O banco demorou a responder' + (snap?.encontrado ? ' — usei o snapshot de impostos como reserva.' : '.'),
-          codigo_invalido: 'Digite o código interno (numérico) do produto.',
-        }[d.erro] || `Não achei o produto ${c} no banco da loja.`)
-      }
-    } catch {
-      setDbMsg('Não consegui puxar do banco agora. Tente de novo.')
-    }
-    setDbBusy(false)
-  }
-
-  // Busca os anúncios desse produto no ML tentando os identificadores em ordem
-  // de precisão: código de barras (GTIN) -> referência -> descrição.
+  // Busca os anúncios desse produto no ML pelo nome/título (a versão sem o
+  // agente do ERP não tem GTIN/referência do banco).
   async function buscarAnunciosProduto() {
-    const gtin = produtoDb?.codigo_barras || ''
-    const ref = produtoDb?.referencia || ''
-    const nome = produtoDb?.descricao || f.titulo || ''
-    if (!gtin && !ref && !nome.trim()) return
+    const nome = comp?.name || f.titulo || ''
+    if (!nome.trim()) return
     setAnuncios({ loading: true, data: null })
     try {
       const qs = new URLSearchParams()
-      if (gtin) qs.set('gtin', gtin)
-      if (ref) qs.set('ref', ref)
-      if (nome) qs.set('nome', nome)
+      qs.set('nome', nome)
       const d = await fetch('/api/anuncios?' + qs.toString()).then((r) => r.json())
       setAnuncios({ loading: false, data: d })
     } catch {
@@ -772,10 +578,10 @@ function Calculator() {
   }
 
   // Monta um RASCUNHO do anúncio e mostra na tela para revisão. NÃO publica
-  // nada no Mercado Livre. Junta: o que veio do catálogo do ML (título, fotos,
-  // marca/modelo — quando o produto existe lá), os dados do banco (quantidade,
-  // GTIN, NCM) e o que você digitou manualmente (peso e medidas do passo 3).
-  // Quando o produto não está no catálogo, preenche só com o que houver.
+  // nada no Mercado Livre. Junta o que veio do catálogo do ML (título, fotos,
+  // marca/modelo — quando o produto existe lá) com o que você digitou (preço,
+  // categoria, peso e medidas). Quando o produto não está no catálogo, preenche
+  // só com o que houver.
   async function prepararAnuncio() {
     setAnuncioPrep({ loading: true, data: null })
     const catId = comp?.matched ? comp.catalog_id : ''
@@ -792,17 +598,17 @@ function Calculator() {
       viaCatalogo: !!base.catalog?.matched,
       catalogId: catId || null,
       catalogUrl: comp?.url || null,
-      titulo: base.catalog?.title || produtoDb?.descricao || comp?.name || f.titulo || '',
+      titulo: base.catalog?.title || comp?.name || f.titulo || '',
       categoriaNome: f.categoryName || null,
       categoriaId: f.categoryId || null,
       preco: parseFloat(f.preco) || null,
-      quantidade: produtoDb?.estoque ?? null,
+      quantidade: null,
       tipoAnuncio: LISTING_TYPES.find((t) => t.id === f.listingType)?.label || f.listingType,
       condicao: 'Novo',
-      marca: attr('BRAND') || produtoDb?.marca || null,
-      modelo: attr('MODEL') || produtoDb?.referencia || null,
-      gtin: produtoDb?.codigo_barras || null,
-      ncm: produtoDb?.ncm || null,
+      marca: attr('BRAND') || null,
+      modelo: attr('MODEL') || null,
+      gtin: null,
+      ncm: null,
       pesoKg: parseFloat(f.pesoKg) || null,          // MANUAL (passo 3)
       dimensoes: (f.alt && f.larg && f.comp) ? `${f.alt} × ${f.larg} × ${f.comp} cm` : null, // MANUAL
       fotos: base.catalog?.pictures || [],
@@ -845,16 +651,10 @@ function Calculator() {
   const custo = parseFloat(f.custo) || 0
   const comissao = res?.commission_total ?? 0
   const frete = res?.freight ?? 0
-  // fonte do ICMS, em ordem de prioridade:
-  //  1) manual (se o usuário marcou);
-  //  2) banco ao vivo — ST/crédito reais da última nota de entrada do produto;
-  //  3) snapshot de impostos (reserva, agregado por código/NCM).
-  const feBanco = produtoDb?.fiscal_entrada
+  // ICMS: só a fonte MANUAL (esta versão não consulta o banco da loja).
   const fic = f.impostoManual
     ? { st: f.manualSt, ic: parseFloat(f.manualCredito) || 0, por: 'manual' }
-    : feBanco
-      ? { st: !!feBanco.st, ic: Number(feBanco.icms_compra_pct) || 0, por: 'banco', dt: feBanco.dt_entrada, cfop: feBanco.cfop_entrada }
-      : (fiscal.data?.encontrado ? fiscal.data : null)
+    : null
   // ICMS líquido = débito na venda (alíquota interna do destino × preço)
   //              − crédito da compra (ICMS destacado na entrada × custo).
   // Para ST o débito e o crédito são zero (ICMS já pago na compra).
@@ -883,80 +683,6 @@ function Calculator() {
                 <label>Quanto o produto te custa (R$)</label>
                 <input type="number" step="0.01" value={f.custo} onChange={upd('custo')} />
               </div>
-            </div>
-            <div className="field">
-              <label>Código do produto (puxa custo, peso, medidas e ICMS reais do banco)</label>
-              <div className="row-inline">
-                <div className="field">
-                  <input
-                    placeholder="código interno do produto (ex: 4346)"
-                    value={f.codigo}
-                    inputMode="numeric"
-                    onChange={upd('codigo')}
-                    onKeyDown={(e) => { if (e.key === 'Enter') puxarDoBanco() }}
-                  />
-                </div>
-                <button className="ghost" onClick={puxarDoBanco} disabled={dbBusy}>
-                  {dbBusy ? 'Puxando…' : 'Puxar do banco'}
-                </button>
-              </div>
-              {dbMsg && <div className="hint" style={{ marginTop: 8 }}>{dbMsg}</div>}
-              {produtoDb && (
-                <div className="callout" style={{ margin: '10px 0 0' }}>
-                  📦 <b>{produtoDb.descricao}</b> — puxado do banco da loja.
-                  <div className="hint" style={{ marginTop: 6 }}>
-                    Custo (último): <b>{produtoDb.custo?.ultimo != null ? money(produtoDb.custo.ultimo) : '—'}</b>
-                    {produtoDb.custo?.medio != null && ` · médio ${money(produtoDb.custo.medio)}`}
-                    {produtoDb.ncm && ` · NCM ${produtoDb.ncm}`}
-                    {(produtoDb.dimensoes?.peso_emb_kg || produtoDb.dimensoes?.peso_unit_kg) &&
-                      ` · ${produtoDb.dimensoes.peso_emb_kg || produtoDb.dimensoes.peso_unit_kg} kg`}
-                  </div>
-                  {feBanco ? (
-                    feBanco.st ? (
-                      <div style={{ marginTop: 6 }}>🟢 <b>Substituição Tributária</b> na última entrada — ICMS já pago na compra, então na revenda o <b>ICMS = 0</b>.</div>
-                    ) : (
-                      <div style={{ marginTop: 6 }}>🧾 <b>Não-ST</b> — crédito real de compra <b>{feBanco.icms_compra_pct}%</b> (CFOP {feBanco.cfop_entrada}). O ICMS sai pelo estado de destino, abatendo esse crédito.</div>
-                    )
-                  ) : (
-                    <div className="hint" style={{ marginTop: 6 }}>Sem nota de entrada registrada — o ICMS não pôde ser confirmado pelo banco; use o ajuste manual abaixo.</div>
-                  )}
-                  {feBanco?.dt_entrada && (
-                    <div className="hint" style={{ marginTop: 4 }}>Baseado na nota de entrada de {new Date(feBanco.dt_entrada).toLocaleDateString('pt-BR')}. Custo, peso e medidas foram preenchidos abaixo — pode ajustar.</div>
-                  )}
-                </div>
-              )}
-              {!produtoDb && fiscal.data && (fiscal.data.encontrado ? (
-                <div className="callout" style={{ margin: '10px 0 0' }}>
-                  {fiscal.data.por === 'ncm' ? (
-                    fiscal.data.st ? (
-                      <>🟢 <b>NCM {fiscal.data.ncm}</b> — normalmente <b>ST</b> ({Math.round(fiscal.data.share * 100)}% dos
-                      seus produtos desse NCM). ICMS na revenda ≈ <b>0</b>.</>
-                    ) : (
-                      <>🧾 <b>NCM {fiscal.data.ncm}</b> — normalmente <b>não-ST</b>. Crédito típico de compra{' '}
-                      <b>{fiscal.data.ic}%</b>. O ICMS sai pelo estado de destino.</>
-                    )
-                  ) : fiscal.data.st ? (
-                    <>🟢 <b>{fiscal.data.descr}</b> — <b>Substituição Tributária</b>: o ICMS já foi pago na compra,
-                    então na revenda o <b>ICMS = 0</b>.</>
-                  ) : (
-                    <>🧾 <b>{fiscal.data.descr}</b> — não-ST{fiscal.data.ncm ? ` (NCM ${fiscal.data.ncm})` : ''}.
-                    O ICMS é calculado pelo estado de destino, já abatendo o <b>crédito de {fiscal.data.ic}%</b> da
-                    compra. Escolha o destino abaixo.</>
-                  )}
-                  <div className="hint" style={{ marginTop: 6 }}>
-                    {fiscal.data.por === 'ncm'
-                      ? `Estimado pelo NCM (média de ${fiscal.data.n} produto(s) seus). Se quiser precisão, use o código de barras ou ajuste manual abaixo.`
-                      : `Origem: notas de entrada do seu ERP${fiscal.data.por === 'cod' ? ' (achado pelo código interno)' : ''}. Alíquotas internas por estado são aproximadas — confirme com o contador.`}
-                  </div>
-                </div>
-              ) : (
-                <div className="hint" style={{ marginTop: 8 }}>
-                  {fiscal.data.erro === 'mapa_ausente'
-                    ? 'A base de impostos ainda não foi gerada (rode o extrator do ERP).'
-                    : 'Não achei esse código nem esse NCM na sua base. Use o ajuste manual abaixo.'}
-                </div>
-              ))}
-              {fiscal.err && <div className="hint" style={{ marginTop: 8 }}>{fiscal.err}</div>}
             </div>
             <div className="field">
               <label>Estado do comprador (destino da venda)</label>
@@ -1164,11 +890,7 @@ function Calculator() {
                   ) : (
                     <>
                       <div className="brow"><span className="k">− ICMS (imposto do estado)</span><span className="v">não incluído</span></div>
-                      <div className="brow sub"><span className="k">
-                        {produtoDb
-                          ? '↳ esse produto não tem nota de entrada no sistema, então não dá pra saber o ICMS'
-                          : '↳ puxe o produto do banco no passo 1 (ou use o ajuste manual) pra incluir o ICMS'}
-                      </span><span className="v" /></div>
+                      <div className="brow sub"><span className="k">↳ marque “Informar o imposto manualmente” no passo 1 pra incluir o ICMS</span><span className="v" /></div>
                     </>
                   )}
                   <div className="brow total"><span className="k">= Sobra no seu bolso</span><span className="v">{money(lucro)}</span></div>
@@ -1283,8 +1005,7 @@ function Calculator() {
                 </>
               ) : (
                 <div className="hint">
-                  Não achei anúncios ativos desse produto no ML — tentei pelo{' '}
-                  {produtoDb ? 'código de barras, referência e descrição' : 'nome digitado'}.
+                  Não achei anúncios ativos desse produto no ML — tentei pelo nome digitado.
                 </div>
               )}
             </div>
@@ -1294,9 +1015,9 @@ function Calculator() {
 
       <div className="callout">
         <b>Como funciona:</b> a comissão e o frete vêm direto do Mercado Livre, com os valores reais da sua conta, e os
-        impostos federais ({IMPOSTO_PCT}%) já saem automaticamente. Puxando o produto do banco, o <b>ICMS</b> (o imposto
-        do estado) também entra: dá <b>zero</b> quando ele já veio pago na compra; nos outros, você paga o que o estado
-        cobra na venda <b>menos o que já pagou na compra</b>. Ainda ficam de fora: a embalagem e a taxa de parcelamento.
+        impostos federais ({IMPOSTO_PCT}%) já saem automaticamente. Marcando <b>“Informar o imposto manualmente”</b>, o
+        <b>ICMS</b> (o imposto do estado) também entra: dá <b>zero</b> quando é ST (já pago na compra); nos outros, você
+        paga o que o estado cobra na venda <b>menos o crédito da compra</b>. Ainda ficam de fora: a embalagem e a taxa de parcelamento.
       </div>
 
       <footer>

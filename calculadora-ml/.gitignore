@@ -5,3 +5,6 @@ dist/
 .env
 .tokens.json
 .user-token.json
+
+# log local
+app.log

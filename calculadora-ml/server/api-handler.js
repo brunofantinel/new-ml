@@ -1,8 +1,6 @@
 import { authStatus, getFees, buildAuthUrl, exchangeCode, getCatalogLive } from './ml.js'
 import { findCompetitor, suggestCategories, getAnuncioBase } from './catalog.js'
-import { lookupImposto } from './impostos.js'
 import { pesquisarMercado, buscarAnuncios } from './mercado.js'
-import { consultarProdutoErp, erpStatus } from './erp.js'
 
 // Handler compartilhado das rotas /api/* e /callback.
 // Usado tanto pelo dev-server do Vite (vite-plugin-api.js) quanto pelo
@@ -33,7 +31,6 @@ export async function handleApi(req, res) {
     if (path === '/api/competitor') { json(res, await findCompetitor(url.searchParams.get('q') || '')); return true }
     if (path === '/api/anuncio') { json(res, await getAnuncioBase(url.searchParams.get('catalog_id') || '', url.searchParams.get('category_id') || '')); return true }
     if (path === '/api/fees') { json(res, await getFees(Object.fromEntries(url.searchParams))); return true }
-    if (path === '/api/imposto') { json(res, lookupImposto(url.searchParams.get('cod') || '')); return true }
     if (path === '/api/mercado') { json(res, await pesquisarMercado(url.searchParams.get('q') || '')); return true }
     if (path === '/api/anuncios') {
       json(res, await buscarAnuncios({
@@ -44,8 +41,6 @@ export async function handleApi(req, res) {
       }))
       return true
     }
-    if (path === '/api/produto') { json(res, await consultarProdutoErp(url.searchParams.get('cod') || '')); return true }
-    if (path === '/api/erp/status') { json(res, await erpStatus()); return true }
     if (path === '/api/vantagem/live') {
       const catalogId = (url.searchParams.get('catalog_id') || '').trim()
       const custo = Number(url.searchParams.get('custo') || 0)
