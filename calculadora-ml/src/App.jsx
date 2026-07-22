@@ -882,6 +882,13 @@ function Calculator() {
     setDbBusy(false)
   }
 
+  // Botão único "Buscar": usa o CÓDIGO INTERNO se preenchido; senão, o BARRAS.
+  function buscarProduto() {
+    if (f.codigo.trim().replace(/\D/g, '')) { puxarDoBanco(); return }
+    if (f.barras.trim().replace(/\D/g, '')) { puxarPorBarras(); return }
+    setDbMsg('Digite o código interno ou o código de barras.')
+  }
+
   // Busca os anúncios desse produto no ML tentando os identificadores em ordem
   // de precisão: código de barras (GTIN) -> referência -> descrição.
   async function buscarAnunciosProduto(nomeOverride) {
@@ -1038,62 +1045,56 @@ function Calculator() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="card">
             <h2><span className="n">1</span> Preço e custo</h2>
-            <div className="row2">
+
+            {/* 1º: buscar o produto no banco (por código interno OU por barras) */}
+            <div className="lookup-box">
+              <label>Código interno de produto</label>
+              <div className="hint" style={{ marginTop: -3, marginBottom: 8 }}>Puxa preço de venda, último custo, peso e medidas do banco.</div>
+              <input
+                placeholder="ex: 4346"
+                value={f.codigo}
+                inputMode="numeric"
+                onChange={upd('codigo')}
+                onKeyDown={(e) => { if (e.key === 'Enter') buscarProduto() }}
+              />
+              <div className="divider-ou"><span>ou código de barras (EAN)</span></div>
+              <input
+                placeholder="Digite o EAN"
+                value={f.barras}
+                inputMode="numeric"
+                onChange={upd('barras')}
+                onKeyDown={(e) => { if (e.key === 'Enter') buscarProduto() }}
+              />
+              <button className="ghost" style={{ width: '100%', marginTop: 10 }} onClick={() => setScanOpen(true)}>📷 Escanear</button>
+              <button className="ghost" style={{ width: '100%', marginTop: 8 }} onClick={buscarProduto} disabled={dbBusy}>
+                {dbBusy ? 'Buscando…' : 'Buscar'}
+              </button>
+            </div>
+
+            {dbMsg && <div className="hint" style={{ marginTop: 10 }}>{dbMsg}</div>}
+            {produtoDb && (
+              <div className="callout" style={{ margin: '12px 0 0' }}>
+                ✓ <b>{produtoDb.descricao}</b> — puxado do banco da loja.
+                <div className="hint" style={{ marginTop: 6 }}>
+                  Custo (último): <b>{produtoDb.custo?.ultimo != null ? money(produtoDb.custo.ultimo) : '—'}</b>
+                  {produtoDb.custo?.medio != null && ` · médio ${money(produtoDb.custo.medio)}`}
+                  {produtoDb.ncm && ` · NCM ${produtoDb.ncm}`}
+                  {(produtoDb.dimensoes?.peso_emb_kg || produtoDb.dimensoes?.peso_unit_kg) &&
+                    ` · ${produtoDb.dimensoes.peso_emb_kg || produtoDb.dimensoes.peso_unit_kg} kg`}
+                </div>
+              </div>
+            )}
+
+            {/* 2º: preço e custo (vêm do banco acima, ou você digita) */}
+            <div className="row2" style={{ marginTop: 16 }}>
               <div className="field">
                 <label>Por quanto você vende (R$)</label>
                 <input type="number" step="0.01" value={f.preco} onChange={upd('preco')} />
               </div>
-              <div className="field">
+              <div className="field" style={{ marginBottom: 0 }}>
                 <label>Quanto o produto te custa (R$)</label>
                 <input type="number" step="0.01" value={f.custo} onChange={upd('custo')} />
               </div>
-            </div>
-            <div className="field">
-              <label>Código do produto (puxa preço de venda, último custo, peso e medidas do banco)</label>
-              <div className="row-inline">
-                <div className="field">
-                  <input
-                    placeholder="código interno do produto (ex: 4346)"
-                    value={f.codigo}
-                    inputMode="numeric"
-                    onChange={upd('codigo')}
-                    onKeyDown={(e) => { if (e.key === 'Enter') puxarDoBanco() }}
-                  />
-                </div>
-                <button className="ghost" onClick={puxarDoBanco} disabled={dbBusy}>
-                  {dbBusy ? 'Puxando…' : 'Puxar do banco'}
-                </button>
-              </div>
-              <div className="row-inline" style={{ marginTop: 8 }}>
-                <div className="field">
-                  <input
-                    placeholder="ou código de barras (EAN)"
-                    value={f.barras}
-                    inputMode="numeric"
-                    onChange={upd('barras')}
-                    onKeyDown={(e) => { if (e.key === 'Enter') puxarPorBarras() }}
-                  />
-                </div>
-                <div className="btn-row">
-                  <button className="ghost" onClick={() => setScanOpen(true)}>📷 Escanear</button>
-                  <button className="ghost" onClick={() => puxarPorBarras()} disabled={dbBusy}>
-                    {dbBusy ? '…' : 'Buscar'}
-                  </button>
-                </div>
-              </div>
-              {dbMsg && <div className="hint" style={{ marginTop: 8 }}>{dbMsg}</div>}
-              {produtoDb && (
-                <div className="callout" style={{ margin: '10px 0 0' }}>
-                  📦 <b>{produtoDb.descricao}</b> — puxado do banco da loja.
-                  <div className="hint" style={{ marginTop: 6 }}>
-                    Custo (último): <b>{produtoDb.custo?.ultimo != null ? money(produtoDb.custo.ultimo) : '—'}</b>
-                    {produtoDb.custo?.medio != null && ` · médio ${money(produtoDb.custo.medio)}`}
-                    {produtoDb.ncm && ` · NCM ${produtoDb.ncm}`}
-                    {(produtoDb.dimensoes?.peso_emb_kg || produtoDb.dimensoes?.peso_unit_kg) &&
-                      ` · ${produtoDb.dimensoes.peso_emb_kg || produtoDb.dimensoes.peso_unit_kg} kg`}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
 

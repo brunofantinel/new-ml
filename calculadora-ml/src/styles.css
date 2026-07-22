@@ -40,6 +40,10 @@ input:focus, select:focus { outline: 2px solid var(--accent-soft); outline-offse
 .row-inline { display: flex; gap: 8px; align-items: flex-end; }
 .row-inline > .field { flex: 1; margin-bottom: 0; }
 .btn-row { display: flex; gap: 8px; }
+/* Quadro de busca do produto (código interno / barras) dentro do passo 1 */
+.lookup-box { border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: var(--paper); }
+.divider-ou { display: flex; align-items: center; gap: 10px; margin: 12px 0; color: var(--soft); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.divider-ou::before, .divider-ou::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 button.primary {
   background: var(--accent); color: #fff; border: 0; border-radius: 10px; padding: 12px 18px;
   font-size: 15px; font-weight: 700; cursor: pointer; width: 100%;
