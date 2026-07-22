@@ -997,10 +997,21 @@ function Calculator() {
   const custo = parseFloat(f.custo) || 0
   const comissao = res?.commission_total ?? 0
   const frete = res?.freight ?? 0
-  // Sem impostos: o "último custo" do banco já traz os impostos/custos embutidos.
-  // Sobra = preço − custo − comissão − frete.
-  const lucro = res ? preco - custo - comissao - frete : 0
+  // O "último custo" do banco já traz os impostos/custos da COMPRA embutidos.
+  // Sobre a VENDA descontamos: imposto federal (Lucro Presumido) sempre, e o
+  // ICMS — que muda conforme o estado do comprador (tabela por UF mais abaixo).
+  const impostoFederal = res ? imposto(preco) : 0
+  // "Sobra antes do ICMS" = preço − custo − comissão − frete − imposto federal.
+  const lucro = res ? preco - custo - comissao - frete - impostoFederal : 0
   const lucroPct = res && preco > 0 ? (lucro / preco) * 100 : 0
+  // Sobra final em cada estado de destino (cada UF tem um ICMS diferente).
+  const sobraPorUF = res
+    ? UF_LISTA.map((uf) => {
+        const icmsRs = (preco * ICMS_UF[uf]) / 100
+        const sobra = lucro - icmsRs
+        return { uf, icmsPct: ICMS_UF[uf], icmsRs, sobra }
+      })
+    : []
   // posicionamento do seu preço vs a média dos anúncios do mesmo produto no ML
   const mercado = anuncios.data?.matched && anuncios.data?.preco?.mediana != null ? anuncios.data.preco : null
   const aval = res ? avaliarPreco(preco, custo, mercado) : null
@@ -1234,7 +1245,7 @@ function Calculator() {
             {res && (
               <>
                 <div className={'verdict ' + (lucro >= 0 ? 'good' : 'bad')}>
-                  <div className="lbl">Sobra pra você por venda</div>
+                  <div className="lbl">Sobra pra você (antes do ICMS estadual)</div>
                   <div className="big">{money(lucro)}</div>
                   <div className="pct">{lucroPct.toFixed(1)}% do preço de venda</div>
                 </div>
@@ -1289,8 +1300,30 @@ function Calculator() {
                   {res.freight_source === 'estimate' && res.freight > 0 && preco >= 79 && f.reputacao !== '0' && (
                     <div className="brow sub"><span className="k">↳ estimado com ~{Math.round(Number(f.reputacao) * 100)}% de desconto de reputação</span><span className="v" /></div>
                   )}
-                  <div className="brow total"><span className="k">= Sobra no seu bolso</span><span className="v">{money(lucro)}</span></div>
-                  <div className="brow sub"><span className="k">↳ o custo do banco (“último custo”) já inclui os impostos da compra. Impostos sobre a venda não entram aqui.</span><span className="v" /></div>
+                  <div className="brow"><span className="k">− Imposto federal (Lucro Presumido {IMPOSTO_PCT}%)</span><span className="v">− {money(impostoFederal)}</span></div>
+                  <div className="brow sub"><span className="k">↳ PIS, COFINS, IRPJ e CSLL sobre a venda</span><span className="v" /></div>
+                  <div className="brow total"><span className="k">= Sobra antes do ICMS</span><span className="v">{money(lucro)}</span></div>
+                  <div className="brow sub"><span className="k">↳ o custo do banco (“último custo”) já inclui os impostos da compra. Falta só o ICMS, que muda por estado — veja a tabela abaixo.</span><span className="v" /></div>
+                </div>
+
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 4 }}>Sobra final por estado do comprador (já com ICMS)</div>
+                  <div className="hint" style={{ marginBottom: 10 }}>
+                    O ICMS depende do estado de destino da venda. Abaixo, o que realmente sobra em cada estado — comissão, frete e imposto federal já descontados. O número ao lado da sigla é a alíquota de ICMS usada.
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 6 }}>
+                    {sobraPorUF.map((s) => (
+                      <div key={s.uf} style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '8px 10px', borderRadius: 10,
+                        border: '1px solid ' + (s.sobra >= 0 ? '#bbf7d0' : '#fecaca'),
+                        background: s.sobra >= 0 ? '#f0fdf4' : '#fef2f2',
+                      }}>
+                        <span style={{ fontWeight: 700 }}>{s.uf}<span style={{ fontWeight: 400, opacity: .55, fontSize: 11, marginLeft: 4 }}>{s.icmsPct}%</span></span>
+                        <span style={{ fontWeight: 800, color: s.sobra >= 0 ? '#15803d' : '#b91c1c' }}>{money(s.sobra)}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
                 {res.percentage_fee != null && (
                   <div className="hint" style={{ marginTop: 10 }}>O Mercado Livre fica com {res.percentage_fee}% de comissão nessa categoria.</div>
@@ -1461,9 +1494,11 @@ function Calculator() {
 
       <div className="callout">
         <b>Como funciona:</b> a comissão e o frete vêm direto do Mercado Livre, com os valores reais da sua conta. O
-        <b> custo</b> vem do <b>“último custo”</b> do banco, que já inclui os impostos e custos da compra — por isso o app
-        <b> não calcula imposto</b> à parte. A sobra é preço − custo − comissão − frete. Ainda ficam de fora: os impostos
-        sobre a venda, a embalagem e a taxa de parcelamento.
+        <b> custo</b> vem do <b>“último custo”</b> do banco, que já inclui os impostos e custos da compra. Sobre a venda o app
+        desconta o <b>imposto federal</b> (Lucro Presumido {IMPOSTO_PCT}%: PIS, COFINS, IRPJ e CSLL) e o <b>ICMS</b>, que muda
+        conforme o estado do comprador (por isso a tabela por estado). A sobra é preço − custo − comissão − frete − imposto
+        federal − ICMS do estado. O ICMS usado é uma <b>estimativa</b> por alíquota interna cheia — não considera ICMS-ST,
+        benefício fiscal nem crédito. Ainda ficam de fora: a embalagem e a taxa de parcelamento.
       </div>
 
       <footer>
