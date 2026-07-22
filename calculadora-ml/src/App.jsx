@@ -1128,13 +1128,11 @@ function Calculator() {
                   )}
                   💰 <b>No Mercado Livre</b> o mais barato hoje é <b>{money(compAtivo.price)}</b>
                   {compAtivo.n_vend ? ` (${compAtivo.n_vend} loja${compAtivo.n_vend === 1 ? '' : 's'} vendendo)` : ''}.
-                  <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    <button className="ghost" onClick={() => setF({ ...f, preco: String(compAtivo.price) })}>Usar esse preço</button>
-                    {compAtivo.category_id && (
-                      <button className="ghost" onClick={() => setF({ ...f, categoryId: compAtivo.category_id, categoryName: compAtivo.category_name || 'mesma do concorrente' })}>Usar a categoria</button>
-                    )}
-                    {compAtivo.url && <a className="ghost link" href={compAtivo.url} target="_blank" rel="noreferrer">Ver no ML ▸</a>}
-                  </div>
+                  {compAtivo.url && (
+                    <div style={{ marginTop: 8 }}>
+                      <a className="ghost link" href={compAtivo.url} target="_blank" rel="noreferrer">Ver no ML ▸</a>
+                    </div>
+                  )}
                   <div className="hint" style={{ marginTop: 6 }}>Produto no ML: {compAtivo.name}</div>
                   {compAtivo.category_path && (
                     <div className="hint" style={{ marginTop: 2 }}>Categoria do ML: {compAtivo.category_path}</div>
