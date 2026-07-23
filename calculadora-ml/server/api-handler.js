@@ -170,6 +170,9 @@ export async function handleApi(req, res) {
         price: url.searchParams.get('price') || '0',
         category_id: url.searchParams.get('category_id') || '',
         logistic_type: url.searchParams.get('logistic_type') || 'cross_docking',
+        weight_grams: url.searchParams.get('weight_grams') || '',
+        dimensions: url.searchParams.get('dimensions') || '',
+        free_shipping: url.searchParams.get('free_shipping'),
       }))
       return true
     }

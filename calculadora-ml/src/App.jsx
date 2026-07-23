@@ -3081,6 +3081,12 @@ function Publicar({ status, inicial }) {
   const [publicando, setPublicando] = useState(false)
   const [resultado, setResultado] = useState(null)
   const [erro, setErro] = useState('')
+  // entrada pela loja: scanner / código interno + produto cru da ERP (custo, dims)
+  const [scanOpen, setScanOpen] = useState(false)
+  const [codLoja, setCodLoja] = useState('')
+  const [erpBusy, setErpBusy] = useState(false)
+  const [erpMsg, setErpMsg] = useState(null)
+  const [erpProd, setErpProd] = useState(null)
 
   // Pré-preenchimento quando o usuário chega de outra tela (Consultar produto
   // ou Calculadora) com um "seed". carregarSeed é hoisted (declaração de função).
@@ -3089,29 +3095,16 @@ function Publicar({ status, inicial }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inicial])
 
-  // Gate: publicar exige conta de vendedor conectada (o app token não publica).
-  if (status && !status.seller_connected) {
-    return (
-      <>
-        <div className="eyebrow">Publicação · API oficial do Mercado Livre</div>
-        <h1>Publicar anúncio no Mercado Livre</h1>
-        <p className="sub">
-          Crie um anúncio já no padrão do Mercado Livre: dados vindos do catálogo, ficha técnica completa, fotos,
-          garantia e descrição — com validação antes de publicar.
-        </p>
-        <div className="card connect-box">
-          <div className="big-ic">🔑</div>
-          <h2 style={{ justifyContent: 'center' }}>Conecte sua conta de vendedor</h2>
-          <p className="sub" style={{ margin: '0 auto 16px' }}>
-            Para publicar, o Mercado Livre precisa de uma conexão com permissão de escrita na sua conta.
-          </p>
-          <a className="primary" href="/api/auth/login" style={{ display: 'inline-block', width: 'auto', textDecoration: 'none' }}>
-            Conectar minha conta
-          </a>
-        </div>
-      </>
-    )
-  }
+  // recalcula tarifas/frete ao trocar a modalidade ou o frete grátis no passo 3
+  useEffect(() => {
+    if (passo === 3 && anuncio && Number(anuncio.price) > 0) carregarFees()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anuncio?.logistic_type, anuncio?.free_shipping])
+
+  // Publicar de verdade exige conta de vendedor conectada (o app token não
+  // publica). Mas montar/revisar o anúncio funciona sem — então não bloqueamos
+  // a página inteira: só avisamos e travamos o botão de publicar/validar.
+  const naoConectado = status && !status.seller_connected
 
   function mapErroConexao(r) {
     if (r.error === 'vendedor_nao_conectado') return 'Conecte sua conta de vendedor para publicar.'
@@ -3122,8 +3115,8 @@ function Publicar({ status, inicial }) {
     return r.detail?.message || r.error || 'Não consegui completar a operação agora.'
   }
 
-  async function buscar() {
-    const termo = q.trim()
+  async function buscar(termoArg) {
+    const termo = (typeof termoArg === 'string' ? termoArg : q).trim()
     if (!termo) return
     setBuscando(true); setResultados(null); setErro('')
     try {
@@ -3133,6 +3126,55 @@ function Publicar({ status, inicial }) {
       setErro('Não consegui buscar no catálogo agora. Tente de novo.')
     }
     setBuscando(false)
+  }
+
+  // Entrada pela loja: puxa o produto da ERP (código interno ou código de barras),
+  // acha o produto certo no catálogo do ML (busca inteligente) e cai no assistente
+  // já preenchido — com o CUSTO da ERP junto, pro cálculo de sobra.
+  async function puxarDaLoja(valor, porBarras) {
+    const v = String(valor || '').replace(/\D/g, '')
+    if (!v) { setErpMsg('Digite o código interno ou escaneie o código de barras.'); return }
+    setErpBusy(true); setErpMsg(null); setErro(''); setResultados(null); setErpProd(null)
+    try {
+      const rota = porBarras ? '/api/produto-barras?barras=' : '/api/produto?cod='
+      const d = await fetch(rota + encodeURIComponent(v)).then((r) => r.json())
+      if (!d.encontrado) {
+        setErpMsg({
+          erp_nao_configurado: 'A conexão com o sistema da loja não está configurada.',
+          erp_indisponivel: 'O agente da loja está offline. Ligue o computador da loja e o agente.',
+          erp_timeout: 'O sistema da loja demorou para responder. Tente de novo.',
+          codigo_invalido: 'Código inválido.',
+          barras_invalido: 'Código de barras inválido.',
+        }[d.erro] || `Não achei produto com ${porBarras ? 'esse código de barras' : 'o código ' + v}.`)
+        setErpBusy(false); return
+      }
+      setErpProd(d)
+      // acha no catálogo do ML pela busca inteligente (gtin -> ref -> descrição)
+      const qs = new URLSearchParams()
+      if (d.codigo_barras) qs.set('gtin', d.codigo_barras)
+      if (d.referencia) qs.set('ref', d.referencia)
+      if (d.descricao) qs.set('nome', d.descricao)
+      const m = await fetch('/api/anuncios?' + qs.toString()).then((r) => r.json()).catch(() => null)
+      const overrides = {
+        price: d.preco_venda, quantity: d.estoque,
+        gtin: d.codigo_barras, brand: d.marca, model: d.referencia,
+        custo: d.custo?.ultimo,
+        peso_kg: d.dimensoes?.peso_emb_kg || d.dimensoes?.peso_unit_kg || null,
+        alt_cm: d.dimensoes?.altura_cm || null,
+        larg_cm: d.dimensoes?.largura_cm || null,
+        comp_cm: d.dimensoes?.comprimento_cm || null,
+      }
+      if (m?.matched && m.product?.id) {
+        await escolher({ id: m.product.id }, overrides)
+      } else {
+        setQ(d.descricao || '')
+        await buscar(d.descricao || '')
+        setErpMsg('Não achei automaticamente no catálogo. Escolha abaixo o produto certo — o custo da loja já fica guardado.')
+      }
+    } catch {
+      setErpMsg('Não consegui consultar a loja agora. Tente de novo.')
+    }
+    setErpBusy(false)
   }
 
   async function escolher(prod, overrides = null) {
@@ -3157,6 +3199,10 @@ function Publicar({ status, inicial }) {
         setIfEmpty('MODEL', overrides.model)
       }
       const val = (v) => (v != null && v !== '' ? String(v) : null)
+      // custo e medidas: do override (entrada pela loja) ou do produto da ERP
+      // já em memória (quando o usuário escolhe manualmente após puxar da loja)
+      const ep = erpProd
+      const dim = ep?.dimensoes || {}
       setAnuncio({
         catalog_id: d.catalog_id,
         catalog_listing: true,
@@ -3171,14 +3217,34 @@ function Publicar({ status, inicial }) {
         description: '',
         warranty_type: 'Garantia do vendedor',
         warranty_dias: '90',
-        price: val(overrides?.price) || '',
-        quantity: val(overrides?.quantity) || '1',
+        price: val(overrides?.price ?? ep?.preco_venda) || '',
+        quantity: val(overrides?.quantity ?? ep?.estoque) || '1',
+        custo: val(overrides?.custo ?? ep?.custo?.ultimo) || '',
+        peso_kg: overrides?.peso_kg ?? dim.peso_emb_kg ?? dim.peso_unit_kg ?? null,
+        alt_cm: overrides?.alt_cm ?? dim.altura_cm ?? null,
+        larg_cm: overrides?.larg_cm ?? dim.largura_cm ?? null,
+        comp_cm: overrides?.comp_cm ?? dim.comprimento_cm ?? null,
         listing_type_id: 'gold_special',
         logistic_type: 'cross_docking',
         free_shipping: true,
       })
       setFees(null); setValidacao(null); setResultado(null)
       setPasso(2)
+      // peso/medidas: a ERP não guarda isso — puxa da embalagem de um anúncio
+      // real do Mercado Livre (SELLER_PACKAGE_*) ou do produto do catálogo.
+      fetch('/api/pacote?catalog_id=' + encodeURIComponent(d.catalog_id))
+        .then((r) => r.json())
+        .then((pac) => {
+          if (!pac?.encontrado) return
+          setAnuncio((a) => a && {
+            ...a,
+            peso_kg: a.peso_kg ?? pac.peso_kg ?? null,
+            alt_cm: a.alt_cm ?? pac.altura_cm ?? null,
+            larg_cm: a.larg_cm ?? pac.largura_cm ?? null,
+            comp_cm: a.comp_cm ?? pac.comprimento_cm ?? null,
+          })
+        })
+        .catch(() => {})
     } catch {
       setErro('Não consegui carregar esse produto do catálogo. Tente outro.')
     }
@@ -3263,7 +3329,13 @@ function Publicar({ status, inicial }) {
         price: String(anuncio.price),
         category_id: anuncio.category_id || '',
         logistic_type: anuncio.logistic_type || 'cross_docking',
+        free_shipping: String(!!anuncio.free_shipping),
       })
+      const g = anuncio.peso_kg ? Math.round(anuncio.peso_kg * 1000) : 0
+      if (g) qs.set('weight_grams', String(g))
+      if (anuncio.alt_cm || anuncio.larg_cm || anuncio.comp_cm) {
+        qs.set('dimensions', `${anuncio.alt_cm || 0}x${anuncio.larg_cm || 0}x${anuncio.comp_cm || 0},${g}`)
+      }
       const d = await fetch('/api/publicar/fees?' + qs.toString()).then((r) => r.json())
       setFees(d)
     } catch { /* mostra sem tarifas */ }
@@ -3332,7 +3404,8 @@ function Publicar({ status, inicial }) {
     gtin: !temGtin || !!String(anuncio.attributes?.[gtinId] ?? '').trim(),
     preco: Number(anuncio.price) > 0,
     quantidade: Number(anuncio.quantity) > 0,
-    categoria: !!anuncio.category_id,
+    // anúncio de catálogo: o ML deriva a categoria do produto, não precisa definir
+    categoria: !!anuncio.category_id || (!!anuncio.catalog_listing && !!anuncio.catalog_id),
   }
   const podePublicar = check && check.titulo && check.fotos && check.ficha && check.preco &&
     check.quantidade && check.categoria && validacao?.ok
@@ -3356,10 +3429,48 @@ function Publicar({ status, inicial }) {
 
       {erro && <div className="callout bad"><b>Erro:</b> {erro}</div>}
 
+      {naoConectado && (
+        <div className="callout warn">
+          🔑 <b>Conta de vendedor não conectada.</b> Você pode montar e revisar o anúncio normalmente — mas pra{' '}
+          <b>validar e publicar</b> precisa conectar.{' '}
+          <a href="/api/auth/login" style={{ fontWeight: 700 }}>Conectar minha conta ▸</a>
+        </div>
+      )}
+
       {/* ---------- PASSO 1: buscar produto no catálogo ---------- */}
       {passo === 1 && (
+       <>
         <div className="card">
-          <h2><span className="n">1</span> Ache o produto no catálogo do Mercado Livre</h2>
+          <h2><span className="n">1</span> Escaneie ou digite o código do produto da loja</h2>
+          <p className="hint" style={{ marginBottom: 10 }}>
+            Bipe o código de barras ou digite o <b>código interno</b>. Eu puxo o produto do sistema da loja (custo,
+            estoque, medidas), acho ele no catálogo do Mercado Livre e já monto o anúncio pronto pra revisar.
+          </p>
+          <div className="row-inline">
+            <div className="field" style={{ flex: 1 }}>
+              <input
+                placeholder="código interno ou de barras"
+                value={codLoja}
+                inputMode="numeric"
+                onChange={(e) => setCodLoja(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { const v = codLoja.replace(/\D/g, ''); puxarDaLoja(codLoja, v.length >= 8) } }}
+              />
+            </div>
+            <button className="ghost" onClick={() => setScanOpen(true)} disabled={erpBusy}>📷 Escanear</button>
+            <button className="primary" onClick={() => { const v = codLoja.replace(/\D/g, ''); puxarDaLoja(codLoja, v.length >= 8) }} disabled={erpBusy}>
+              {erpBusy ? 'Buscando…' : 'Buscar produto'}
+            </button>
+          </div>
+          {erpMsg && <div className="callout warn" style={{ marginTop: 10 }}>{erpMsg}</div>}
+          {erpProd && (
+            <div className="hint" style={{ marginTop: 8 }}>
+              Produto da loja: <b>{erpProd.descricao}</b> · custo {erpProd.custo?.ultimo != null ? money(erpProd.custo.ultimo) : '—'} · estoque {erpProd.estoque ?? '—'}
+            </div>
+          )}
+        </div>
+
+        <div className="card">
+          <h2><span className="n">🔎</span> …ou ache manualmente no catálogo</h2>
           <p className="hint" style={{ marginBottom: 10 }}>
             Buscar no catálogo garante que título, fotos e ficha técnica já venham no padrão do ML — a base de um anúncio
             de qualidade. Digite marca + modelo pra achar o produto certo.
@@ -3400,6 +3511,7 @@ function Publicar({ status, inicial }) {
             </div>
           )}
         </div>
+       </>
       )}
 
       {/* ---------- PASSOS 2 e 3: revisão + preço, com checklist lateral ---------- */}
@@ -3542,13 +3654,28 @@ function Publicar({ status, inicial }) {
                   <h2><span className="n">3</span> Preço, quantidade e envio</h2>
                   <div className="row2">
                     <div className="field">
-                      <label>Preço (R$)</label>
+                      <label>Preço de venda (R$)</label>
                       <input type="number" step="0.01" value={anuncio.price}
                         onChange={(e) => set('price', e.target.value)} onBlur={carregarFees} />
                     </div>
                     <div className="field">
+                      <label>Seu custo (R$)</label>
+                      <input type="number" step="0.01" value={anuncio.custo ?? ''}
+                        onChange={(e) => set('custo', e.target.value)} placeholder="custo da loja" />
+                      <div className="hint">Vem do "último custo" da loja. Editável.</div>
+                    </div>
+                  </div>
+                  <div className="row2">
+                    <div className="field">
                       <label>Quantidade em estoque</label>
                       <input type="number" value={anuncio.quantity} onChange={(e) => set('quantity', e.target.value)} />
+                    </div>
+                    <div className="field">
+                      <label>Peso da encomenda (kg)</label>
+                      <input type="number" step="0.01" value={anuncio.peso_kg ?? ''}
+                        onChange={(e) => set('peso_kg', e.target.value === '' ? null : Number(e.target.value))}
+                        onBlur={carregarFees} placeholder="ex: 0,80" />
+                      <div className="hint">Puxado da embalagem de um anúncio do ML. Editável.</div>
                     </div>
                   </div>
                   <div className="field">
@@ -3576,9 +3703,12 @@ function Publicar({ status, inicial }) {
                       const f = fees?.[t.id]
                       const sel = anuncio.listing_type_id === t.id
                       const preco = Number(anuncio.price) || 0
+                      const custo = Number(anuncio.custo) || 0
                       const comissao = f?.commission_total
                       const frete = f?.freight
-                      const sobra = (comissao != null && preco > 0) ? preco - comissao - (frete || 0) - imposto(preco) : null
+                      const impo = preco > 0 ? imposto(preco) : 0
+                      const sobra = (comissao != null && preco > 0) ? preco - custo - comissao - (frete || 0) - impo : null
+                      const pct = (sobra != null && preco > 0) ? Math.round((sobra / preco) * 100) : null
                       return (
                         <button key={t.id} className={'pub-tipo' + (sel ? ' on' : '')} onClick={() => set('listing_type_id', t.id)}>
                           <div className="pub-tipo-h">{sel ? '✓ ' : ''}{t.label}</div>
@@ -3586,10 +3716,13 @@ function Publicar({ status, inicial }) {
                             <div className="hint">tarifa indisponível</div>
                           ) : f ? (
                             <div className="pub-tipo-b">
-                              <div className="brow"><span className="k">Comissão</span><span className="v">{comissao != null ? money(comissao) : '—'}</span></div>
+                              <div className="brow"><span className="k">Preço</span><span className="v">{money(preco)}</span></div>
+                              {custo > 0 && <div className="brow sub"><span className="k">↳ seu custo</span><span className="v">−{money(custo)}</span></div>}
+                              <div className="brow"><span className="k">Comissão</span><span className="v">−{comissao != null ? money(comissao) : '—'}</span></div>
                               {f.fixed_fee > 0 && <div className="brow sub"><span className="k">↳ custo fixo</span><span className="v">{money(f.fixed_fee)}</span></div>}
-                              <div className="brow"><span className="k">Frete{f.freight_is_estimate ? ' (est.)' : ''}</span><span className="v">{frete != null ? money(frete) : '—'}</span></div>
-                              <div className="brow total"><span className="k">Sobra estimada</span><span className={'v ' + (sobra >= 0 ? 'pos' : 'neg')}>{sobra != null ? money(sobra) : '—'}</span></div>
+                              <div className="brow"><span className="k">Frete{f.freight_is_estimate ? ' (est.)' : ''}</span><span className="v">−{frete != null ? money(frete) : '—'}</span></div>
+                              <div className="brow sub"><span className="k">↳ imposto {IMPOSTO_PCT}%</span><span className="v">−{money(impo)}</span></div>
+                              <div className="brow total"><span className="k">Sobra</span><span className={'v ' + (sobra >= 0 ? 'pos' : 'neg')}>{sobra != null ? money(sobra) : '—'}{pct != null ? ` · ${pct}%` : ''}</span></div>
                             </div>
                           ) : (
                             <div className="hint">clique em "Comparar tarifas"</div>
@@ -3599,7 +3732,7 @@ function Publicar({ status, inicial }) {
                     })}
                   </div>
                   <div className="hint" style={{ marginTop: 8 }}>
-                    A sobra estimada já desconta a comissão, o frete e o imposto federal ({IMPOSTO_PCT}%). Não inclui ICMS nem o seu custo.
+                    A sobra já desconta o seu custo, a comissão, o frete e o imposto federal ({IMPOSTO_PCT}%). Não inclui o ICMS (varia por estado).
                   </div>
                 </div>
 
@@ -3686,10 +3819,17 @@ function Publicar({ status, inicial }) {
             </a>
           )}
           <button className="ghost" style={{ width: '100%', marginTop: 10 }}
-            onClick={() => { setAnuncio(null); setResultado(null); setValidacao(null); setResultados(null); setQ(''); setPasso(1) }}>
+            onClick={() => { setAnuncio(null); setResultado(null); setValidacao(null); setResultados(null); setQ(''); setCodLoja(''); setErpProd(null); setErpMsg(null); setPasso(1) }}>
             Publicar outro
           </button>
         </div>
+      )}
+
+      {scanOpen && (
+        <ScannerModal
+          onDetect={(code) => { setScanOpen(false); setCodLoja(code); puxarDaLoja(code, true) }}
+          onClose={() => setScanOpen(false)}
+        />
       )}
 
       <footer>

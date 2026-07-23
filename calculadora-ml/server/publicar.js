@@ -122,8 +122,16 @@ function isReadOnly(a) {
 // Passo 3 — tarifas dos dois tipos de anúncio (Clássico x Premium) de uma vez,
 // pra o usuário comparar antes de escolher. Reusa o getFees existente.
 // ---------------------------------------------------------------------------
-export async function feesPorTipo({ price, category_id, logistic_type }) {
-  const base = { price: String(price || 0), category_id: category_id || '', logistic_type: logistic_type || 'cross_docking' }
+export async function feesPorTipo({ price, category_id, logistic_type, weight_grams, dimensions, free_shipping }) {
+  const base = {
+    price: String(price || 0),
+    category_id: category_id || '',
+    logistic_type: logistic_type || 'cross_docking',
+    // peso/medidas deixam o frete real (não a estimativa genérica)
+    ...(weight_grams ? { weight_grams: String(weight_grams) } : {}),
+    ...(dimensions ? { dimensions: String(dimensions) } : {}),
+    ...(free_shipping != null ? { free_shipping: String(free_shipping) } : {}),
+  }
   const [gold_special, gold_pro] = await Promise.all([
     getFees({ ...base, listing_type: 'gold_special' }).catch((e) => ({ error: e.message })),
     getFees({ ...base, listing_type: 'gold_pro' }).catch((e) => ({ error: e.message })),
