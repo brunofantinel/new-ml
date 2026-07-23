@@ -222,17 +222,27 @@ const arredondar = (n, casas) => Math.round(n * 10 ** casas) / 10 ** casas
 // Lê o primeiro atributo da lista `ids` e converte pra kg/cm. Devolve null se
 // não achar, se o número não fizer sentido ou se a unidade for desconhecida
 // (melhor ficar sem o dado do que chutar uma unidade errada).
+//
+// O ML devolve o valor em três formatos diferentes conforme o endpoint:
+//   value_struct: {number, unit}          -> /products/{id}
+//   value_name: "500 g"                   -> /products/{id}
+//   values: [{struct: {number, unit}}]    -> /user-products/{id}
+// O terceiro é o do anúncio do vendedor, que é justamente o que interessa.
 function medidaAttr(attrs, ids, tabela, casas) {
   for (const id of ids) {
     const a = attrs.find((x) => x?.id === id)
     if (!a) continue
+    const v0 = Array.isArray(a.values) ? a.values[0] : null
+    const struct = a.value_struct || v0?.struct || null
+    const nome = a.value_name || v0?.name || null
+
     let numero = null
     let unidade = null
-    if (a.value_struct && a.value_struct.number != null) {
-      numero = Number(a.value_struct.number)
-      unidade = a.value_struct.unit
-    } else if (a.value_name) {
-      const m = String(a.value_name).match(/^\s*([\d.,]+)\s*([^\s\d]+)?/)
+    if (struct && struct.number != null) {
+      numero = Number(struct.number)
+      unidade = struct.unit
+    } else if (nome) {
+      const m = String(nome).match(/^\s*([\d.,]+)\s*([^\s\d]+)?/)
       if (m) {
         numero = Number(m[1].replace(/\.(?=\d{3}\b)/g, '').replace(',', '.'))
         unidade = m[2]
@@ -246,14 +256,16 @@ function medidaAttr(attrs, ids, tabela, casas) {
   return null
 }
 
-// Medidas da EMBALAGEM (é o que interessa pro frete).
+// Medidas da EMBALAGEM (é o que interessa pro frete). O SELLER_PACKAGE_* vem
+// primeiro de propósito: é a caixa que aquele vendedor realmente despacha, que
+// o ML usa pra cobrar o frete dele. O PACKAGE_* é o do catálogo, mais genérico.
 function pacoteDosAtributos(attrs) {
   const A = Array.isArray(attrs) ? attrs : []
   return {
-    peso_kg: medidaAttr(A, ['PACKAGE_WEIGHT', 'SHIPPING_WEIGHT'], PARA_KG, 3),
-    altura_cm: medidaAttr(A, ['PACKAGE_HEIGHT'], PARA_CM, 1),
-    largura_cm: medidaAttr(A, ['PACKAGE_WIDTH'], PARA_CM, 1),
-    comprimento_cm: medidaAttr(A, ['PACKAGE_LENGTH'], PARA_CM, 1),
+    peso_kg: medidaAttr(A, ['SELLER_PACKAGE_WEIGHT', 'PACKAGE_WEIGHT', 'SHIPPING_WEIGHT'], PARA_KG, 3),
+    altura_cm: medidaAttr(A, ['SELLER_PACKAGE_HEIGHT', 'PACKAGE_HEIGHT'], PARA_CM, 1),
+    largura_cm: medidaAttr(A, ['SELLER_PACKAGE_WIDTH', 'PACKAGE_WIDTH'], PARA_CM, 1),
+    comprimento_cm: medidaAttr(A, ['SELLER_PACKAGE_LENGTH', 'PACKAGE_LENGTH'], PARA_CM, 1),
   }
 }
 
@@ -266,19 +278,6 @@ function produtoDosAtributos(attrs) {
     altura_cm: medidaAttr(A, ['HEIGHT'], PARA_CM, 1),
     largura_cm: medidaAttr(A, ['WIDTH'], PARA_CM, 1),
     comprimento_cm: medidaAttr(A, ['LENGTH', 'DEPTH'], PARA_CM, 1),
-  }
-}
-
-// shipping.dimensions do anúncio: "30x20x10,500" = A x L x C em cm, peso em g.
-function pacoteDoShipping(item) {
-  const d = item?.shipping?.dimensions
-  const m = typeof d === 'string' && d.match(/^\s*(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)\s*(?:,\s*(\d+(?:\.\d+)?))?/i)
-  if (!m) return null
-  return {
-    altura_cm: Number(m[1]) || null,
-    largura_cm: Number(m[2]) || null,
-    comprimento_cm: Number(m[3]) || null,
-    peso_kg: m[4] ? arredondar(Number(m[4]) / 1000, 3) : null,
   }
 }
 
@@ -298,28 +297,31 @@ function completar(base, extra) {
 // fonte: 'anuncio' = embalagem declarada por quem vende | 'produto' = medidas do
 // produto no catálogo (sem a caixa).
 export async function getPacoteAnuncio(catalogId, itemId) {
-  // 1) anúncios reais do produto — preferimos o item que o app já escolheu
-  const ids = []
-  if (itemId) ids.push(itemId)
+  // 1) O pacote declarado por quem vende.
+  //    /items/{id} responde 403 pra token de aplicação (o ML fechou a leitura
+  //    de anúncio de terceiro), mas /products/{id}/items devolve o
+  //    `user_product_id` de cada anúncio, e /user-products/{id} abre normal —
+  //    é lá que ficam os SELLER_PACKAGE_* com a caixa real do vendedor.
+  let upids = []
   if (catalogId) {
     try {
       const r = await mlGet(`/products/${catalogId}/items`)
-      for (const it of Array.isArray(r?.results) ? r.results : []) {
-        if (it?.item_id) ids.push(it.item_id)
-      }
+      const res = Array.isArray(r?.results) ? r.results : []
+      // o anúncio que o app já escolheu (o mais barato) vai na frente
+      const ordenados = itemId
+        ? [...res].sort((a, b) => (b.item_id === itemId ? 1 : 0) - (a.item_id === itemId ? 1 : 0))
+        : res
+      upids = [...new Set(ordenados.map((x) => x.user_product_id).filter(Boolean))].slice(0, 4)
     } catch {}
   }
-  const unicos = [...new Set(ids)].slice(0, 4)
-  const itens = await Promise.all(unicos.map((id) => mlGet(`/items/${id}`).catch(() => null)))
+  const anuncios = await Promise.all(
+    upids.map((id) => mlGet(`/user-products/${id}`).catch(() => null))
+  )
 
   const candidatos = []
-  for (const it of itens) {
-    if (!it) continue
-    // shipping.dimensions é o que o ML usa pra cobrar; os atributos completam
-    const s = completar(pacoteDoShipping(it) || {
-      peso_kg: null, altura_cm: null, largura_cm: null, comprimento_cm: null,
-    }, pacoteDosAtributos(it.attributes))
-    candidatos.push({ ...s, fonte: 'anuncio' })
+  for (const u of anuncios) {
+    if (!u) continue
+    candidatos.push({ ...pacoteDosAtributos(u.attributes), fonte: 'anuncio' })
   }
 
   // 2) reserva: o próprio produto do catálogo
