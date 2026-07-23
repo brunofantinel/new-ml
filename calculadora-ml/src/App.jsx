@@ -791,11 +791,14 @@ function Calculator() {
   const [anuncioPrep, setAnuncioPrep] = useState({ loading: false, data: null })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
-  // Campo do card "Não achou a categoria?". Nasce preenchido com a categoria
-  // que o app detectou pelo produto parseado — o usuário só edita se quiser
-  // buscar por uma categoria mais geral.
-  const [buscaCat, setBuscaCat] = useState('')
+  // Campo HÍBRIDO da categoria. Ele mostra o id do ML (MLB1234) que veio do
+  // produto escolhido no carrossel; mas se a pessoa digitar texto ("eletrônicos"),
+  // vira uma busca por nome e as sugestões aparecem embaixo pra escolher.
+  const [catInput, setCatInput] = useState('')
   const [buscandoCat, setBuscandoCat] = useState(false)
+  const catTimer = useRef(null) // debounce da busca enquanto digita
+
+  const ehIdMlb = (v) => /^MLB\d+$/i.test(String(v).trim())
 
   const upd = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
 
@@ -836,11 +839,11 @@ function Calculator() {
       setComp(compD)
       setCats(list)
       if (list.length) {
-        setF((prev) => ({ ...prev, categoryId: list[0].category_id, categoryName: list[0].category_name }))
+        aplicarCategoria(list[0].category_id, list[0].category_name)
       } else {
         // sem sugestão: zera a categoria em vez de deixar a do produto anterior
-        // pendurada na tela (o campo de busca e o "Categoria escolhida" leem daqui)
-        setF((prev) => ({ ...prev, categoryId: '', categoryName: '' }))
+        // pendurada na tela (o campo e o "Categoria escolhida" leem daqui)
+        aplicarCategoria('', '')
       }
     } catch {
       setCats([])
@@ -849,30 +852,44 @@ function Calculator() {
     setPredicting(false)
   }
 
-  // Sempre que a categoria mudar (por parse do produto ou por escolha na
-  // lista), o campo de busca acompanha.
-  useEffect(() => { setBuscaCat(f.categoryName || '') }, [f.categoryName])
+  // Aplica uma categoria vinda de FORA do campo (produto do carrossel, parse do
+  // banco, clique numa sugestão) — o campo passa a mostrar o id dela.
+  function aplicarCategoria(id, nome) {
+    setF((prev) => ({ ...prev, categoryId: id || '', categoryName: nome || '' }))
+    setCatInput(id || '')
+  }
 
-  // Busca de CATEGORIA por nome — o caminho pra quando o produto não foi
-  // achado e nenhuma categoria veio junto. A pessoa digita algo geral
-  // ("eletrônicos") e escolhe na lista. Diferente de predict(), aqui NÃO
-  // mexemos no produto/candidatos nem escolhemos nada sozinhos.
-  async function buscarCategoria() {
-    const q = buscaCat.trim()
-    if (!q) return
-    setBuscandoCat(true)
-    try {
-      const d = await fetch('/api/buscar-categoria?q=' + encodeURIComponent(q)).then((r) => r.json())
-      setCats(Array.isArray(d) ? d : [])
-    } catch {
-      setCats([])
-    }
-    setBuscandoCat(false)
+  // Digitação no campo híbrido:
+  //  - "MLB1234"       → é o id, assume direto
+  //  - "eletrônicos"   → busca por nome e lista as sugestões pra escolher
+  // Enquanto o texto não for um id, não há categoria escolhida — a pessoa
+  // precisa clicar numa sugestão (senão o id seguiria valendo o do produto
+  // anterior sem ela perceber).
+  function onCatInput(v) {
+    setCatInput(v)
+    clearTimeout(catTimer.current)
+    const t = v.trim()
+
+    if (!t) { setCats([]); setF((p) => ({ ...p, categoryId: '', categoryName: '' })); return }
+    if (ehIdMlb(t)) { setCats([]); setF((p) => ({ ...p, categoryId: t, categoryName: '' })); return }
+
+    setF((p) => ({ ...p, categoryId: '', categoryName: '' }))
+    if (t.length < 3) { setCats([]); return }
+    catTimer.current = setTimeout(async () => {
+      setBuscandoCat(true)
+      try {
+        const d = await fetch('/api/buscar-categoria?q=' + encodeURIComponent(t)).then((r) => r.json())
+        setCats(Array.isArray(d) ? d : [])
+      } catch {
+        setCats([])
+      }
+      setBuscandoCat(false)
+    }, 350)
   }
 
   function pickCat(c) {
-    // Mantém os chips na tela (não limpa) — só troca a categoria escolhida.
-    setF((prev) => ({ ...prev, categoryId: c.category_id, categoryName: c.category_name }))
+    // Mantém a lista na tela (não limpa) — só troca a categoria escolhida.
+    aplicarCategoria(c.category_id, c.category_name)
   }
 
   // Preenche os campos a partir do produto vindo do banco (por código ou barras):
@@ -1120,7 +1137,8 @@ function Calculator() {
     setCompIdx(i)
     const cand = candidatos[i]
     if (!cand) return
-    if (cand.category_id) setF((prev) => ({ ...prev, categoryId: cand.category_id, categoryName: cand.category_name || 'mesma do concorrente' }))
+    // escolher o produto no carrossel já puxa o id da categoria dele
+    if (cand.category_id) aplicarCategoria(cand.category_id, cand.category_name || 'mesma do concorrente')
     buscarAnunciosProduto(cand.name)
   }
 
@@ -1237,12 +1255,21 @@ function Calculator() {
               </div>
             )}
 
-            {/* ── Id da categoria (nó 2484:3106) ── */}
+            {/* ── Id da categoria (nó 2484:3106) — campo HÍBRIDO ── */}
             <div className="field">
               <label>Id da categoria no Mercado Livre</label>
               <div className="id-field">
                 <img src={iconSearch} alt="" />
-                <input placeholder="MLB1234" value={f.categoryId} onChange={upd('categoryId')} />
+                <input
+                  placeholder="MLB1234 ou o nome da categoria"
+                  value={catInput}
+                  onChange={(e) => onCatInput(e.target.value)}
+                />
+                {buscandoCat && <span className="id-field-busy">…</span>}
+              </div>
+              <div className="hint">
+                Escolher o produto acima já traz o id. Ou digite o nome — ex.:{' '}
+                <b>Eletrônicos</b> — que eu sugiro as categorias aqui embaixo.
               </div>
             </div>
 
@@ -1253,30 +1280,6 @@ function Calculator() {
                 {catAtiva?.category_path && <p className="p">{catAtiva.category_path}</p>}
               </div>
             )}
-
-            {/* ── card-busca-categoria (nó 2480:3117 / 2484:3184) ── */}
-            <div className="cat-search">
-              <div className="cat-search-title">
-                <p className="t">Não achou a categoria?</p>
-                <p className="d">
-                  Caso o produto exato não apareça, busque pela categoria geral para mapear taxas e médias de mercado.
-                </p>
-              </div>
-              <div className="cat-search-row">
-                <div className="cat-search-input">
-                  <img src={iconSearch} alt="" />
-                  <input
-                    placeholder="Ex: Eletrônicos, Jardim"
-                    value={buscaCat}
-                    onChange={(e) => setBuscaCat(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') buscarCategoria() }}
-                  />
-                </div>
-                <button className="cat-search-btn" onClick={buscarCategoria} disabled={buscandoCat}>
-                  {buscandoCat ? '…' : 'Buscar'}
-                </button>
-              </div>
-            </div>
 
             {/* ── Resultados da busca: lista de categorias (nó 2484:3198) ── */}
             {cats.length > 0 && (

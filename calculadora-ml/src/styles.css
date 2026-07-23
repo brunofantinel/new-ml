@@ -425,6 +425,7 @@ button.ghost {
   font-weight: var(--fw-semibold);
 }
 .id-field input:focus { outline: none; border: 0; }
+.id-field-busy { flex: 0 0 auto; color: var(--c-text-faint); font-weight: var(--fw-bold); }
 
 /* ===== Categoria escolhida (nó 2484:3181) ============================== */
 .cat-chosen {
@@ -495,86 +496,6 @@ button.ghost {
 }
 .cat-item.on .tag { background: var(--c-teal-200); color: var(--c-green-800); }
 .cat-item .guess { font-size: var(--fs-10); color: var(--c-text-faint); }
-
-/* ===== card-busca-categoria (nó 2480:3117) ============================== */
-/* Vive DENTRO do card do passo 2, então usa o gradiente interno (mesmo
-   tratamento do .lookup-box) — com o gradiente externo do design ele sumiria
-   sobre o card que o contém. */
-.cat-search {
-  background: var(--grad-card-inner);
-  border: var(--bw-thin) solid var(--c-line);
-  border-radius: var(--r-2xl);
-  padding: var(--sp-10);
-  filter: var(--shadow-card);
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-8);
-}
-.cat-search-title { display: flex; flex-direction: column; gap: var(--sp-2); }
-.cat-search-title .t {
-  margin: 0;
-  font-size: var(--fs-18);
-  font-weight: var(--fw-bold);
-  line-height: var(--lh-tight);
-  color: var(--c-teal-900);
-}
-.cat-search-title .d {
-  margin: 0;
-  font-size: var(--fs-13);
-  font-weight: var(--fw-regular);
-  line-height: var(--lh-snug);
-  color: var(--c-white);
-}
-/* card-divider */
-.cat-search-row {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-4);
-  border-top: var(--bw-thin) solid var(--c-line);
-  padding-top: var(--sp-8);
-}
-.cat-search-input {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--sp-4);
-  height: var(--h-input);
-  padding: 0 var(--sp-7);
-  background: var(--c-white);
-  border: var(--bw-thick) solid var(--c-teal-900);
-  border-radius: var(--r-xl);
-}
-.cat-search-input img { width: 18px; height: 18px; flex: 0 0 18px; }
-.cat-search-input input {
-  flex: 1;
-  min-width: 0;
-  height: auto;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  font-family: var(--font-sans);
-  font-size: var(--fs-14);
-  font-weight: var(--fw-medium);
-}
-.cat-search-input input::placeholder { color: var(--c-text-faint); font-weight: var(--fw-medium); }
-.cat-search-input input:focus { outline: none; border: 0; }
-.cat-search-btn {
-  height: var(--h-input);
-  padding: 0 var(--sp-10);
-  background: var(--c-teal-900);
-  border: var(--bw-thick) solid var(--c-teal-900);
-  border-radius: var(--r-xl);
-  color: var(--c-white);
-  font-family: var(--font-sans);
-  font-size: var(--fs-14);
-  font-weight: var(--fw-bold);
-  cursor: pointer;
-  white-space: nowrap;
-  filter: var(--shadow-cta);
-}
-.cat-search-btn:disabled { opacity: .55; cursor: default; filter: none; }
 
 /* ===== exposicao-info-table ============================================== */
 /* Resumo do tipo de anúncio escolhido, logo abaixo do segmented. */
