@@ -3577,6 +3577,7 @@ function MeusAnuncios({ status }) {
   const [fTipo, setFTipo] = useState('todos')
   const [sort, setSort] = useState('recentes')
   const [trend, setTrend] = useState({}) // id -> { loading, serie, dias }
+  const [acaoBusy, setAcaoBusy] = useState({}) // id -> 'pausar' | 'ativar' | 'excluir'
 
   async function carregar(off) {
     setCarregando(true); setErro('')
@@ -3609,6 +3610,34 @@ function MeusAnuncios({ status }) {
     } catch {
       setTrend((s) => ({ ...s, [id]: { loading: false } }))
     }
+  }
+
+  // Pausar / ativar / excluir o anúncio (escrita na API do ML). Excluir é
+  // irreversível — pede confirmação antes. Atualiza a lista local no sucesso.
+  async function acao(id, tipo) {
+    if (tipo === 'excluir' && !window.confirm('Excluir este anúncio no Mercado Livre? Esta ação é irreversível.')) return
+    setAcaoBusy((s) => ({ ...s, [id]: tipo }))
+    setErro('')
+    try {
+      const r = await fetch('/api/anuncio/acao', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, acao: tipo }),
+      }).then((res) => res.json())
+      if (r.error) {
+        const s = r.status || r.detail?.status
+        setErro(r.error === 'vendedor_nao_conectado'
+          ? 'Conecte sua conta de vendedor para gerenciar os anúncios.'
+          : (s === 403 || /forbidden/i.test(r.error))
+            ? 'O token da conexão não tem permissão de escrita. Reconecte habilitando a escrita no seu aplicativo do Mercado Livre.'
+            : (r.detail?.message || r.error))
+      } else if (tipo === 'excluir') {
+        setItens((a) => a.filter((i) => i.id !== id))
+      } else {
+        setItens((a) => a.map((i) => i.id === id ? { ...i, status: tipo === 'pausar' ? 'paused' : 'active' } : i))
+      }
+    } catch {
+      setErro('Não consegui completar a ação agora. Tente de novo.')
+    }
+    setAcaoBusy((s) => { const c = { ...s }; delete c[id]; return c })
   }
 
   // Gate: precisa do vendedor conectado (o app token não lê vendas/visitas/health).
@@ -3752,7 +3781,22 @@ function MeusAnuncios({ status }) {
                 <button className="ghost" disabled={tr?.loading} onClick={() => verTendencia(it.id)}>
                   {tr?.loading ? 'Buscando…' : tr?.serie ? 'Atualizar tendência' : 'Ver visitas por dia'}
                 </button>
-                {it.permalink && <a className="ghost link" href={it.permalink} target="_blank" rel="noreferrer">Abrir no Mercado Livre ▸</a>}
+                {it.status === 'active' && (
+                  <button className="ghost" disabled={!!acaoBusy[it.id]} onClick={() => acao(it.id, 'pausar')}>
+                    {acaoBusy[it.id] === 'pausar' ? 'Pausando…' : 'Pausar'}
+                  </button>
+                )}
+                {it.status === 'paused' && (
+                  <button className="ghost" disabled={!!acaoBusy[it.id]} onClick={() => acao(it.id, 'ativar')}>
+                    {acaoBusy[it.id] === 'ativar' ? 'Ativando…' : 'Ativar'}
+                  </button>
+                )}
+                {it.status !== 'closed' && (
+                  <button className="ghost danger" disabled={!!acaoBusy[it.id]} onClick={() => acao(it.id, 'excluir')}>
+                    {acaoBusy[it.id] === 'excluir' ? 'Excluindo…' : 'Excluir'}
+                  </button>
+                )}
+                {it.permalink && <a className="ghost link" href={it.permalink} target="_blank" rel="noreferrer">Abrir ▸</a>}
               </div>
             </div>
           )

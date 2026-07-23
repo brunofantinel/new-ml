@@ -1419,8 +1419,10 @@ footer {
   border-color: var(--c-line);
   color: var(--c-danger);
 }
-.vfoot { display: flex; gap: var(--sp-3); align-items: center; }
+.vfoot { display: flex; gap: var(--sp-3); align-items: center; flex-wrap: wrap; }
 .vfoot .ghost { flex: 1; text-align: center; }
+.ghost.danger { color: var(--c-danger); border-color: var(--c-danger); }
+.ghost.danger:hover:not(:disabled) { background: var(--c-danger-bg); }
 .vnote { font-style: italic; }
 
 /* ===== Pesquisa de mercado ============================================== */
