@@ -3,6 +3,7 @@ import {
   MODALIDADES, MODALIDADE_IDS, getModalidade,
   pesoCobravelKg, pesoVolumetricoKg, checarLimites, compararModalidades,
 } from '../server/freight.js'
+import iconSearch from './assets/icon-search.svg' // ícone exportado do Figma
 
 const money = (v) =>
   'R$ ' + (v < 0 ? '-' : '') + Math.abs(v ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -1155,16 +1156,31 @@ function Calculator() {
 
           <div className="card">
             <h2><span className="n">2</span> Categoria</h2>
-            <div className="field">
-              <label>Descubra a categoria e o preço do concorrente</label>
-              <div className="row-inline">
-                <div className="field">
-                  <input placeholder="ex: mochila escolar 34 litros" value={f.titulo} onChange={upd('titulo')} />
+            {/* card-busca-categoria (nó 2480:3117) */}
+            <div className="cat-search">
+              <div className="cat-search-title">
+                <p className="t">Não achou a categoria?</p>
+                <p className="d">
+                  Caso o produto exato não apareça, busque pela categoria geral para mapear taxas e médias de mercado.
+                </p>
+              </div>
+              <div className="cat-search-row">
+                <div className="cat-search-input">
+                  <img src={iconSearch} alt="" />
+                  <input
+                    placeholder="Digite a categoria..."
+                    value={f.titulo}
+                    onChange={upd('titulo')}
+                    onKeyDown={(e) => { if (e.key === 'Enter') predict() }}
+                  />
                 </div>
-                <button className="ghost" onClick={predict} disabled={predicting}>
+                <button className="cat-search-btn" onClick={predict} disabled={predicting}>
                   {predicting ? '…' : 'Buscar'}
                 </button>
               </div>
+            </div>
+
+            <div className="field">
 
               {comp && (comp.matched ? (
                 <div className="callout" style={{ margin: '10px 0 0' }}>
