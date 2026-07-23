@@ -469,6 +469,174 @@ function Nivel({ level }) {
   )
 }
 
+// Gráfico de visitas dia a dia (nó 2515:127 do Figma). SVG puro, sem
+// biblioteca: são no máximo 91 pontos e o desenho é uma área + uma linha.
+// A série já vem do servidor com os dias faltantes preenchidos com zero e em
+// ordem cronológica — o endpoint do ML omite dia sem visita e devolve os
+// pontos fora de ordem, então isso é resolvido lá.
+function GraficoVisitas({ serie, dias, tom = 'neutro' }) {
+  const L = 640, A = 170            // viewBox: o SVG escala pra largura do card
+  const base = A - 18               // sobra embaixo pros números do eixo
+  const n = serie?.length || 0
+  if (n < 2) return <div className="hint">Sem série de visitas para desenhar.</div>
+
+  const max = Math.max(...serie, 1)
+  const x = (i) => (i / (n - 1)) * L
+  const y = (v) => base - (v / max) * (base - 6)
+
+  const pontos = serie.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`)
+  const linha = 'M' + pontos.join(' L')
+  const area = `${linha} L${L},${base} L0,${base} Z`
+
+  // rótulos do eixo: de 7 em 7 dias pra não embolar
+  const passo = dias >= 90 ? 10 : dias >= 60 ? 7 : 5
+  const marcas = []
+  for (let i = 0; i < n; i += passo) marcas.push(i)
+  if (marcas[marcas.length - 1] !== n - 1) marcas.push(n - 1)
+
+  return (
+    <svg className={'graf ' + tom} viewBox={`0 0 ${L} ${A}`} preserveAspectRatio="none" role="img"
+      aria-label={`Visitas por dia nos últimos ${dias} dias`}>
+      {/* linhas de grade */}
+      {[0, 0.25, 0.5, 0.75, 1].map((f) => (
+        <line key={f} className="graf-grade" x1="0" x2={L} y1={6 + f * (base - 6)} y2={6 + f * (base - 6)} />
+      ))}
+      <path className="graf-area" d={area} />
+      <path className="graf-linha" d={linha} />
+      {/* eixo dos dias */}
+      <line className="graf-eixo" x1="0" x2={L} y1={base} y2={base} />
+      {marcas.map((i) => (
+        <g key={i}>
+          <line className="graf-tick" x1={x(i)} x2={x(i)} y1={base} y2={base + 4} />
+          <text className="graf-dia" x={x(i)} y={A - 3} textAnchor="middle">{i + 1}</text>
+        </g>
+      ))}
+    </svg>
+  )
+}
+
+// Card de um produto do ranking (nó 2515:103 do Figma). Cada card tem a sua
+// própria janela de gráfico: trocar 30/60/90 aqui refaz só a série DESTE
+// produto, sem recarregar a categoria inteira.
+function CardAlta({ it, janelaInicial, onPesquisar }) {
+  const [janela, setJanela] = useState(janelaInicial)
+  const [dem, setDem] = useState(it.demanda)
+  const [carregando, setCarregando] = useState(false)
+
+  // a categoria recarregou com outra janela: volta a acompanhar o padrão
+  useEffect(() => {
+    setJanela(janelaInicial)
+    setDem(it.demanda)
+  }, [janelaInicial, it.demanda])
+
+  async function trocar(dias) {
+    if (dias === janela) return
+    setJanela(dias)
+    if (!it.item_ids?.length) return
+    setCarregando(true)
+    try {
+      const d = await fetch(
+        '/api/serie-visitas?itens=' + encodeURIComponent(it.item_ids.join(',')) + '&dias=' + dias
+      ).then((r) => r.json())
+      if (!d.erro) setDem(d)
+    } catch { /* mantém o que já estava na tela */ }
+    setCarregando(false)
+  }
+
+  const tom = dem?.direcao === 'subindo' ? 'sobe' : dem?.direcao === 'caindo' ? 'cai' : 'neutro'
+
+  return (
+    <div className="alta-card">
+      <div className="alta-pos">#{it.posicao}</div>
+      <div className="alta-pic">
+        {it.thumbnail ? <img src={it.thumbnail} alt="" /> : <span className="alta-pic-vazia">Imagem do produto</span>}
+      </div>
+      <div className="alta-body">
+        <div className="alta-nome">
+          {it.nome || (it.sem_dados ? 'Anúncio individual (o ML não abre os dados)' : 'Sem nome')}
+        </div>
+        {it.marca && <div className="alta-marca">{it.marca}</div>}
+
+        <div className="alta-num">
+          {it.preco_min != null ? <b>{money(it.preco_min)}</b> : <span className="alta-sem">preço não disponível</span>}
+          {it.n_vend != null && (
+            <span className={'alta-conc' + (it.n_vend > 30 ? ' muito' : it.n_vend <= 5 ? ' pouco' : '')}>
+              {it.n_vend} {it.n_vend === 1 ? 'vendedor' : 'vendedores'}
+            </span>
+          )}
+        </div>
+
+        <div className="alta-sinais">
+          {it.avaliacoes != null && (
+            <span className="alta-sinal" title="Só quem comprou avalia — é um piso de quantas vendas o produto já teve.">
+              <i className="pt" /> {it.avaliacoes.toLocaleString('pt-BR')} avaliações
+              {it.nota != null && ` · ★ ${String(it.nota).replace('.', ',')}`}
+            </span>
+          )}
+          {dem && (
+            <span className={'alta-sinal forte ' + tom}>
+              <i className="pt" /> {dem.visitas_dia.toLocaleString('pt-BR')} visitas/dia
+              {dem.direcao === 'subindo' && ` · subindo${dem.variacao != null ? ` +${dem.variacao}%` : ''}`}
+              {dem.direcao === 'caindo' && ` · caindo ${dem.variacao}%`}
+              {dem.direcao === 'estavel' && ' · estável'}
+              {dem.direcao === 'pouco movimento' && ' · pouco movimento'}
+            </span>
+          )}
+          {it.movimento && (
+            <span className={'alta-sinal ' + (it.movimento.novo ? 'novo' : it.movimento.delta > 0 ? 'sobe' : it.movimento.delta < 0 ? 'cai' : '')}>
+              {it.movimento.novo
+                ? '✨ novo no ranking'
+                : it.movimento.delta > 0
+                  ? `▲ subiu ${it.movimento.delta} (era #${it.movimento.antes})`
+                  : it.movimento.delta < 0
+                    ? `▼ caiu ${-it.movimento.delta} (era #${it.movimento.antes})`
+                    : '= mesma posição'}
+            </span>
+          )}
+          {it.oficiais > 0 && <span className="alta-alerta">⚠ {it.oficiais} loja oficial vendendo</span>}
+          {!it.catalogo && !it.sem_dados && <span className="alta-tag">anúncio próprio de vendedor</span>}
+        </div>
+
+        {/* ── Gráfico de visitas dia a dia ── */}
+        {dem?.serie?.length > 1 && (
+          <div className="alta-graf">
+            <div className="alta-graf-topo">
+              <span className="t">Visitas · últimos {janela} dias</span>
+              {dem.variacao != null && dem.direcao !== 'pouco movimento' && (
+                <span className={'v ' + tom}>
+                  {dem.variacao > 0 ? '▲' : dem.variacao < 0 ? '▼' : '='} {Math.abs(dem.variacao)}%
+                </span>
+              )}
+            </div>
+            <div className="segmented mini">
+              {[30, 60, 90].map((d) => (
+                <button key={d} type="button" className={janela === d ? 'on' : ''} onClick={() => trocar(d)}>
+                  {d} dias
+                </button>
+              ))}
+            </div>
+            <div className={'alta-graf-caixa' + (carregando ? ' carregando' : '')}>
+              <GraficoVisitas serie={dem.serie} dias={dem.dias} tom={tom} />
+            </div>
+            <div className="alta-graf-nota">
+              Um ponto por dia, até ontem — hoje ainda está correndo.
+              {dem.dias_sem_visita > 0 &&
+                ` ${dem.dias_sem_visita} ${dem.dias_sem_visita === 1 ? 'dia ficou' : 'dias ficaram'} sem nenhuma visita.`}
+            </div>
+          </div>
+        )}
+
+        <div className="alta-acoes">
+          {it.nome && (
+            <button type="button" className="alta-btn" onClick={() => onPesquisar(it.nome)}>Pesquisar</button>
+          )}
+          <a className="alta-btn cheio" href={it.url} target="_blank" rel="noreferrer">Ver no ML</a>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ===========================================================================
 // EM ALTA — o caminho inverso: parte do que o ML já vende bem.
 // ===========================================================================
@@ -637,70 +805,12 @@ function EmAlta({ onPesquisar }) {
             </div>
             <div className="alta-grid">
               {itens.map((it) => (
-                <div key={`${it.tipo}-${it.id}`} className="alta-card">
-                  <div className="alta-pos">#{it.posicao}</div>
-                  <div className="alta-pic">
-                    {it.thumbnail
-                      ? <img src={it.thumbnail} alt="" />
-                      : <span className="alta-pic-vazia">sem foto</span>}
-                  </div>
-                  <div className="alta-body">
-                    <div className="alta-nome">
-                      {it.nome || (it.sem_dados ? 'Anúncio individual (o ML não abre os dados)' : 'Sem nome')}
-                    </div>
-                    {it.marca && <div className="alta-marca">{it.marca}</div>}
-                    <div className="alta-num">
-                      {it.preco_min != null ? <b>{money(it.preco_min)}</b> : <span className="alta-sem">preço não disponível</span>}
-                      {it.n_vend != null && (
-                        <span className={'alta-conc' + (it.n_vend > 30 ? ' muito' : it.n_vend <= 5 ? ' pouco' : '')}>
-                          {it.n_vend} {it.n_vend === 1 ? 'vendedor' : 'vendedores'}
-                        </span>
-                      )}
-                    </div>
-                    {/* quanto vende (acumulado) e se está esquentando (agora) */}
-                    {(it.avaliacoes != null || it.demanda) && (
-                      <div className="alta-sinais">
-                        {it.avaliacoes != null && (
-                          <span className="alta-sinal" title="Só quem comprou avalia — é um piso de quantas vendas o produto já teve.">
-                            🛒 <b>{it.avaliacoes.toLocaleString('pt-BR')}</b> avaliações
-                            {it.nota != null && ` · ★${String(it.nota).replace('.', ',')}`}
-                          </span>
-                        )}
-                        {it.demanda && (
-                          <span className={'alta-sinal ' + it.demanda.direcao.replace(' ', '-')}>
-                            {{ subindo: '📈', caindo: '📉', estavel: '➖' }[it.demanda.direcao] || '·'}{' '}
-                            <b>{it.demanda.visitas_dia.toLocaleString('pt-BR')}</b> visitas/dia
-                            {it.demanda.direcao === 'subindo' && ` · subindo${it.demanda.variacao != null ? ` +${it.demanda.variacao}%` : ''}`}
-                            {it.demanda.direcao === 'caindo' && ` · caindo ${it.demanda.variacao}%`}
-                            {it.demanda.direcao === 'estavel' && ' · estável'}
-                            {it.demanda.direcao === 'pouco movimento' && ' · pouco movimento'}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    {it.movimento && (
-                      <div className={'alta-mov' + (it.movimento.novo ? ' novo' : it.movimento.delta > 0 ? ' subiu' : it.movimento.delta < 0 ? ' caiu' : '')}>
-                        {it.movimento.novo
-                          ? '✨ novo no ranking'
-                          : it.movimento.delta > 0
-                            ? `▲ subiu ${it.movimento.delta} ${it.movimento.delta === 1 ? 'posição' : 'posições'} (era #${it.movimento.antes})`
-                            : it.movimento.delta < 0
-                              ? `▼ caiu ${-it.movimento.delta} ${it.movimento.delta === -1 ? 'posição' : 'posições'} (era #${it.movimento.antes})`
-                              : '= mesma posição'}
-                      </div>
-                    )}
-                    {it.oficiais > 0 && <div className="alta-alerta">⚠ {it.oficiais} loja oficial vendendo</div>}
-                    {!it.catalogo && !it.sem_dados && <div className="alta-tag">anúncio próprio de vendedor</div>}
-                    <div className="alta-acoes">
-                      {it.nome && (
-                        <button type="button" className="ghost" onClick={() => onPesquisar(it.nome)}>
-                          Pesquisar
-                        </button>
-                      )}
-                      <a className="alta-link" href={it.url} target="_blank" rel="noreferrer">Ver no ML ›</a>
-                    </div>
-                  </div>
-                </div>
+                <CardAlta
+                  key={`${it.tipo}-${it.id}`}
+                  it={it}
+                  janelaInicial={janela}
+                  onPesquisar={onPesquisar}
+                />
               ))}
             </div>
           </div>

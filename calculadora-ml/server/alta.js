@@ -32,7 +32,30 @@ function guardar(chave, dados) {
   return dados
 }
 
-const attr = (lista, id) => (lista || []).find((a) => a.id === id)?.value_name || null
+// O valor de um atributo vem em `value_name` no /products e em `values[0].name`
+// no /user-products — os dois formatos aparecem aqui.
+const attr = (lista, id) => {
+  const a = (lista || []).find((x) => x?.id === id)
+  if (!a) return null
+  return a.value_name || (Array.isArray(a.values) ? a.values[0]?.name : null) || null
+}
+
+// A API do ML devolve 503/429 esporadico quando varios cards sao resolvidos ao
+// mesmo tempo. Sem retentativa um card perdia o nome ou o preco por causa de
+// uma falha passageira, entao insistimos com espera crescente. 403 e 404 sao
+// definitivos: nao adianta repetir.
+const dormir = (ms) => new Promise((r) => setTimeout(r, ms))
+async function api(rota, tentativas = 4) {
+  for (let i = 0; i < tentativas; i++) {
+    try {
+      return await mlGet(rota)
+    } catch (e) {
+      const s = e.status || 0
+      if (s === 403 || s === 404 || i === tentativas - 1) throw e
+      await dormir(500 * 2 ** i) // 0,5s · 1s · 2s
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Quanto vende e se está crescendo.
@@ -61,7 +84,7 @@ const validarJanela = (d) => (JANELAS.includes(Number(d)) ? Number(d) : JANELA_P
 async function avaliacoes(itemId) {
   if (!itemId) return null
   try {
-    const r = await mlGet(`/reviews/item/${itemId}?limit=1`)
+    const r = await api(`/reviews/item/${itemId}?limit=1`)
     const total = r?.paging?.total ?? null
     if (total == null) return null
     return { total, nota: r?.rating_average ?? null }
@@ -72,20 +95,25 @@ async function avaliacoes(itemId) {
 
 // Visitas somadas de até 3 anúncios do mesmo produto (sinal menos ruidoso),
 // com a comparação entre as duas metades da janela.
-async function demanda(itemIds, dias = JANELA_PADRAO) {
+export async function demanda(itemIds, dias = JANELA_PADRAO) {
   const ids = (itemIds || []).filter(Boolean).slice(0, 3)
   if (!ids.length) return null
   const corte = Date.now() - (dias / 2) * 24 * 3600 * 1000
   let total = 0, recente = 0, antigo = 0, ok = 0
+  // dia (YYYY-MM-DD) -> visitas somadas dos anúncios daquele produto
+  const porDia = new Map()
+
   await Promise.all(ids.map(async (id) => {
     try {
-      const v = await mlGet(`/items/${id}/visits/time_window?last=${dias}&unit=day`)
+      const v = await api(`/items/${id}/visits/time_window?last=${dias}&unit=day`)
       ok++
       for (const p of v?.results || []) {
         const n = Number(p?.total) || 0
-        if (!n) return
+        if (!n) continue
         total += n
-        const ts = new Date(String(p.date).slice(0, 10) + 'T00:00:00Z').getTime()
+        const dia = String(p.date).slice(0, 10)
+        porDia.set(dia, (porDia.get(dia) || 0) + n)
+        const ts = new Date(dia + 'T00:00:00Z').getTime()
         if (ts >= corte) recente += n
         else antigo += n
       }
@@ -104,10 +132,31 @@ async function demanda(itemIds, dias = JANELA_PADRAO) {
     else if (recente < antigo * 0.85) direcao = 'caindo'
     else direcao = 'estavel'
   }
+  // SÉRIE DIÁRIA para o gráfico. Dois cuidados que o endpoint do ML exige:
+  //  1) ele OMITE os dias sem nenhuma visita — se a gente não preencher com
+  //     zero, o gráfico "pula" o dia e a linha mente;
+  //  2) os pontos NÃO vêm em ordem cronológica — a ordem do array é arbitrária.
+  // Por isso montamos a série a partir do calendário, não da resposta.
+  // A janela do ML é INCLUSIVA nas duas pontas: `last=30` cobre de hoje-30 até
+  // hoje. HOJE fica de fora do gráfico de propósito: é um dia em andamento, com
+  // só algumas horas contabilizadas, e desenhado ele vira um mergulho pra perto
+  // do zero na ponta da linha todo santo dia. Os totais e a tendência acima
+  // continuam contando com ele.
+  const serie = []
+  const hojeUtc = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z').getTime()
+  for (let i = dias; i >= 1; i--) {
+    const dia = new Date(hojeUtc - i * 86400000).toISOString().slice(0, 10)
+    serie.push(porDia.get(dia) || 0)
+  }
+  const serieInicio = new Date(hojeUtc - dias * 86400000).toISOString().slice(0, 10)
+
   return {
     visitas: total,
     visitas_dia: Math.round((total / dias) * 10) / 10,
     recente, antigo, direcao, variacao, dias,
+    serie,                 // uma posição por dia, do mais antigo pro mais novo
+    serie_inicio: serieInicio,
+    dias_sem_visita: serie.filter((n) => n === 0).length,
   }
 }
 
@@ -167,7 +216,7 @@ export async function categoriasRaiz() {
   const chave = 'raizes'
   const c = doCache(chave)
   if (c) return c
-  const r = await mlGet('/sites/MLB/categories')
+  const r = await api('/sites/MLB/categories')
   return guardar(chave, (r || []).map((x) => ({ id: x.id, name: x.name })))
 }
 
@@ -178,7 +227,7 @@ export async function categoriasFilhas(id) {
   const chave = `filhas:${id}`
   const c = doCache(chave)
   if (c) return c
-  const d = await mlGet(`/categories/${id}`)
+  const d = await api(`/categories/${id}`)
   return guardar(chave, {
     id: d?.id || id,
     name: d?.name || null,
@@ -193,21 +242,30 @@ async function resolver(entrada, dias) {
 
   if (entrada.type === 'PRODUCT') {
     const [p, itens] = await Promise.all([
-      mlGet(`/products/${entrada.id}`).catch(() => null),
-      mlGet(`/products/${entrada.id}/items`).catch(() => null),
+      api(`/products/${entrada.id}`).catch(() => null),
+      api(`/products/${entrada.id}/items`).catch(() => null),
     ])
     const res = Array.isArray(itens?.results) ? itens.results : []
     const precos = res.map((x) => x.price).filter((v) => v != null)
     const itemIds = res.map((x) => x.item_id).filter(Boolean)
+    // /products/{id} é o endpoint mais instável do ML (503 até isolado em
+    // alguns ids). Quando ele não vem, o produto próprio do primeiro vendedor
+    // tem o mesmo nome e foto — melhor isso que um card "Sem nome".
+    let reserva = null
+    if (!p?.name) {
+      const upid = res.find((x) => x.user_product_id)?.user_product_id
+      if (upid) reserva = await api(`/user-products/${upid}`).catch(() => null)
+    }
     const [aval, dem] = await Promise.all([avaliacoes(itemIds[0]), demanda(itemIds, dias)])
     return {
       ...base,
       avaliacoes: aval?.total ?? null,
       nota: aval?.nota ?? null,
       demanda: dem,
-      nome: p?.name || null,
-      marca: attr(p?.attributes, 'BRAND'),
-      thumbnail: p?.pictures?.[0]?.url || null,
+      item_ids: itemIds.slice(0, 3),
+      nome: p?.name || reserva?.name || reserva?.family_name || null,
+      marca: attr(p?.attributes, 'BRAND') || attr(reserva?.attributes, 'BRAND'),
+      thumbnail: p?.pictures?.[0]?.url || reserva?.pictures?.[0]?.secure_url || reserva?.thumbnail || null,
       preco_min: precos.length ? Math.min(...precos) : null,
       preco_max: precos.length ? Math.max(...precos) : null,
       n_vend: itens?.paging?.total ?? res.length,
@@ -220,23 +278,24 @@ async function resolver(entrada, dias) {
   }
 
   if (entrada.type === 'USER_PRODUCT') {
-    const u = await mlGet(`/user-products/${entrada.id}`).catch(() => null)
+    const u = await api(`/user-products/${entrada.id}`).catch(() => null)
     // quando o produto próprio aponta pro catálogo, aproveitamos o preço de lá
-    let precos = [], nVend = null, categoryId = null, aval = null, dem = null
+    let precos = [], nVend = null, categoryId = null, aval = null, dem = null, idsMedidos = []
     if (u?.catalog_product_id) {
-      const itens = await mlGet(`/products/${u.catalog_product_id}/items`).catch(() => null)
+      const itens = await api(`/products/${u.catalog_product_id}/items`).catch(() => null)
       const res = Array.isArray(itens?.results) ? itens.results : []
       precos = res.map((x) => x.price).filter((v) => v != null)
       nVend = itens?.paging?.total ?? res.length
       categoryId = res[0]?.category_id || null
-      const itemIds = res.map((x) => x.item_id).filter(Boolean)
-      ;[aval, dem] = await Promise.all([avaliacoes(itemIds[0]), demanda(itemIds, dias)])
+      idsMedidos = res.map((x) => x.item_id).filter(Boolean)
+      ;[aval, dem] = await Promise.all([avaliacoes(idsMedidos[0]), demanda(idsMedidos, dias)])
     }
     return {
       ...base,
       avaliacoes: aval?.total ?? null,
       nota: aval?.nota ?? null,
       demanda: dem,
+      item_ids: idsMedidos.slice(0, 3),
       nome: u?.name || u?.family_name || null,
       marca: attr(u?.attributes, 'BRAND'),
       thumbnail: u?.pictures?.[0]?.secure_url || u?.thumbnail || null,
@@ -266,6 +325,7 @@ async function resolver(entrada, dias) {
     avaliacoes: aval?.total ?? null,
     nota: aval?.nota ?? null,
     demanda: dem,
+    item_ids: [entrada.id],
     url: `https://produto.mercadolivre.com.br/${String(entrada.id).replace('MLB', 'MLB-')}`,
     catalogo: false,
     sem_dados: true,
@@ -333,6 +393,6 @@ export async function termosDoSite() {
   const chave = 'trends:site'
   const c = doCache(chave)
   if (c) return c
-  const r = await mlGet('/trends/MLB').catch(() => [])
+  const r = await api('/trends/MLB').catch(() => [])
   return guardar(chave, (Array.isArray(r) ? r : []).slice(0, 20).map((t) => ({ termo: t.keyword, url: t.url })))
 }

@@ -2,7 +2,7 @@ import { authStatus, getFees, buildAuthUrl, exchangeCode, getCatalogLive, getTen
 import { findCompetitor, suggestCategories, getAnuncioBase, buscarCategorias, getPacoteAnuncio } from './catalog.js'
 import { pesquisarMercado, buscarAnuncios } from './mercado.js'
 import { consultarProdutoErp, consultarPorBarras, erpStatus } from './erp.js'
-import { getEmAlta, categoriasRaiz, categoriasFilhas, termosDoSite } from './alta.js'
+import { getEmAlta, categoriasRaiz, categoriasFilhas, termosDoSite, demanda } from './alta.js'
 
 // Handler compartilhado das rotas /api/* e /callback.
 // Usado tanto pelo dev-server do Vite (vite-plugin-api.js) quanto pelo
@@ -49,6 +49,13 @@ export async function handleApi(req, res) {
       return true
     }
     if (path === '/api/termos-alta') { json(res, await termosDoSite()); return true }
+    // série diária de visitas de UM produto — usado quando a pessoa troca a
+    // janela do gráfico dentro do card, sem recarregar a categoria inteira
+    if (path === '/api/serie-visitas') {
+      const ids = (url.searchParams.get('itens') || '').split(',').map((s) => s.trim()).filter(Boolean)
+      json(res, (await demanda(ids, Number(url.searchParams.get('dias')) || 30)) || { erro: 'sem_dados' })
+      return true
+    }
 
     // peso e medidas da embalagem, lidos dos anúncios reais desse produto
     if (path === '/api/pacote') {
