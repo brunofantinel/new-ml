@@ -880,6 +880,37 @@ button.ghost {
 .cat-acoes .alta-btn { flex: 1 1 200px; }
 .termo-chip.estatico { cursor: default; }
 
+/* caminho da categoria no rodapé do card da aba "Em alta" */
+.alta-cat {
+  width: 100%;
+  text-align: left;
+  background: var(--c-surface);
+  border: var(--bw-thin) solid var(--c-line);
+  border-radius: var(--r-sm);
+  padding: var(--sp-2) var(--sp-4);
+  font-size: var(--fs-11);
+  font-weight: var(--fw-semibold);
+  color: var(--c-teal-700);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.alta-cat:hover { background: var(--c-teal-050); border-color: var(--c-teal-200); }
+
+/* caixas de seleção dos filtros */
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
+  font-size: var(--fs-13);
+  color: var(--c-white);
+  cursor: pointer;
+}
+.check input { width: auto; height: auto; margin-top: 3px; flex: 0 0 auto; }
+.check i { font-style: normal; color: var(--c-text-faint); }
+
 /* ===== Aba "Em alta": termos e grade de mais vendidos =================== */
 .termo-chips { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
 .termo-chip {

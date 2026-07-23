@@ -130,7 +130,8 @@ export default function App() {
         <button className={view === 'calc' ? 'tab on' : 'tab'} onClick={() => setView('calc')}>Calculadora</button>
         <button className={view === 'produto' ? 'tab on' : 'tab'} onClick={() => setView('produto')}>Consultar produto</button>
         <button className={view === 'mercado' ? 'tab on' : 'tab'} onClick={() => setView('mercado')}>Pesquisa de mercado</button>
-        <button className={view === 'alta' ? 'tab on' : 'tab'} onClick={() => setView('alta')}>Em alta</button>
+        <button className={view === 'vendidos' ? 'tab on' : 'tab'} onClick={() => setView('vendidos')}>Mais vendidos</button>
+        <button className={view === 'subindo' ? 'tab on' : 'tab'} onClick={() => setView('subindo')}>Em alta</button>
         <button className={view === 'categorias' ? 'tab on' : 'tab'} onClick={() => setView('categorias')}>Categorias em alta</button>
         <button className={view === 'vantagens' ? 'tab on' : 'tab'} onClick={() => setView('vantagens')}>Vantagens no ML</button>
       </nav>
@@ -138,9 +139,14 @@ export default function App() {
       {view === 'vantagens' ? (
         <Vantagens />
       ) : view === 'categorias' ? (
-        <CategoriasAlta onVerProdutos={(catId) => { setCategoriaAlta(catId); setView('alta') }} />
-      ) : view === 'alta' ? (
-        <EmAlta
+        <CategoriasAlta onVerProdutos={(catId) => { setCategoriaAlta(catId); setView('vendidos') }} />
+      ) : view === 'subindo' ? (
+        <ProdutosSubindo
+          onPesquisar={(termo) => { setBuscaMercado(termo); setView('mercado') }}
+          onVerCategoria={(catId) => { setCategoriaAlta(catId); setView('vendidos') }}
+        />
+      ) : view === 'vendidos' ? (
+        <MaisVendidos
           categoriaInicial={categoriaAlta}
           onPesquisar={(termo) => { setBuscaMercado(termo); setView('mercado') }}
         />
@@ -524,6 +530,163 @@ function GraficoVisitas({ serie, dias, tom = 'neutro' }) {
 }
 
 // ===========================================================================
+// EM ALTA — o que está SUBINDO no Mercado Livre inteiro.
+// ===========================================================================
+// Diferente de "Mais vendidos", que é a ordem de venda que o ML publica: aqui
+// a ordem é de CRESCIMENTO. Vem da varredura das ~476 categorias, que mede as
+// visitas diárias dos produtos do topo de cada uma — a lista é o que sobrou
+// depois de filtrar só os que estão subindo com tráfego que sustente.
+function ProdutosSubindo({ onPesquisar, onVerCategoria }) {
+  const [rel, setRel] = useState(null)
+  const [busca, setBusca] = useState('')
+  const [secao, setSecao] = useState('todas')
+  const [poucosVend, setPoucosVend] = useState(false)
+  const [confiavel, setConfiavel] = useState(false)
+  const [ordem, setOrdem] = useState('score')
+  const [limite, setLimite] = useState(24)
+
+  useEffect(() => {
+    fetch('/api/produtos-em-alta').then((r) => r.json()).then(setRel).catch(() => setRel({ erro: true }))
+  }, [])
+
+  const secoes = useMemo(() => {
+    if (!rel?.produtos) return []
+    const s = new Set(rel.produtos.map((p) => p.categoria?.path?.split(' > ')[0]).filter(Boolean))
+    return [...s].sort()
+  }, [rel])
+
+  const lista = useMemo(() => {
+    if (!rel?.produtos) return []
+    let l = rel.produtos
+    if (secao !== 'todas') l = l.filter((p) => p.categoria?.path?.startsWith(secao))
+    if (poucosVend) l = l.filter((p) => (p.n_vend ?? 99) <= 5)
+    if (confiavel) l = l.filter((p) => !p.amostra_fragil)
+    const t = busca.trim().toLowerCase()
+    if (t) l = l.filter((p) => (p.nome || '').toLowerCase().includes(t) || (p.categoria?.path || '').toLowerCase().includes(t))
+    const chave = (p) => (ordem === 'variacao' ? p.variacao : ordem === 'visitas' ? p.visitas_dia : p.score)
+    return [...l].sort((a, b) => chave(b) - chave(a))
+  }, [rel, secao, poucosVend, confiavel, busca, ordem])
+
+  if (!rel) return <p className="spin">Lendo os produtos em alta…</p>
+  if (rel.erro) return <div className="card"><div className="hint">Não consegui ler o relatório.</div></div>
+  if (rel.vazio) {
+    return (
+      <>
+        <div className="eyebrow">Crescimento real de visitas</div>
+        <h1>Em alta</h1>
+        <div className="card connect-box">
+          <div className="big-ic">📈</div>
+          <h2 style={{ justifyContent: 'center' }}>O relatório ainda não foi gerado</h2>
+          <p className="sub" style={{ margin: '0 auto' }}>
+            Esta lista sai da varredura das categorias — milhares de chamadas à API, não dá pra fazer
+            na abertura da tela. Rode uma vez: <code>{rel.comando}</code>
+          </p>
+        </div>
+      </>
+    )
+  }
+
+  return (
+    <>
+      <div className="eyebrow">Crescimento de visitas · {rel.produtos_medidos} produtos medidos em {rel.categorias_varridas} categorias</div>
+      <h1>Em alta</h1>
+      <p className="sub">
+        Os produtos que <b>mais cresceram em procura</b> no Mercado Livre inteiro, não os que mais vendem.
+        Só entram os que estão <b>subindo</b> e têm tráfego que sustente a conclusão — sem isso, sair de 1
+        para 4 visitas viraria “+300%” e lideraria a lista.
+      </p>
+
+      <div className="card">
+        <h2><span className="n">1</span> Filtrar</h2>
+        <div className="row2">
+          <div className="field">
+            <label className="plain">Seção</label>
+            <select value={secao} onChange={(e) => { setSecao(e.target.value); setLimite(24) }}>
+              <option value="todas">Todas ({rel.total})</option>
+              {secoes.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label className="plain">Procurar</label>
+            <input placeholder="nome do produto ou categoria" value={busca} onChange={(e) => { setBusca(e.target.value); setLimite(24) }} />
+          </div>
+        </div>
+        <div className="cat-ordem" style={{ marginBottom: 10 }}>
+          {[
+            { id: 'score', label: 'Melhor combinação' },
+            { id: 'variacao', label: 'Maior crescimento %' },
+            { id: 'visitas', label: 'Mais visitas/dia' },
+          ].map((o) => (
+            <button key={o.id} type="button" className={ordem === o.id ? 'on' : ''} onClick={() => setOrdem(o.id)}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+        <label className="check">
+          <input type="checkbox" checked={poucosVend} onChange={(e) => { setPoucosVend(e.target.checked); setLimite(24) }} />
+          <span>Só com até 5 vendedores <i>(dá pra brigar com conta nova)</i></span>
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={confiavel} onChange={(e) => { setConfiavel(e.target.checked); setLimite(24) }} />
+          <span>Só medições confiáveis <i>(esconde produto com muito vendedor, onde a amostra é frágil)</i></span>
+        </label>
+      </div>
+
+      <div className="card">
+        <h2>📈 {lista.length} produtos subindo <span className="pill">janela {rel.janela_dias} dias</span></h2>
+        <div className="hint" style={{ marginBottom: 12 }}>
+          A ordem “melhor combinação” pesa 55% o tamanho da procura e 45% a força do crescimento — um
+          produto de 4.000 visitas/dia crescendo 60% vale mais que um de 40 crescendo 200%.
+        </div>
+        <div className="alta-grid">
+          {lista.slice(0, limite).map((p, i) => (
+            <CardAlta
+              key={`${p.tipo}-${p.id}`}
+              it={{
+                ...p,
+                // nesta aba a posição do card é a do RANKING DE CRESCIMENTO;
+                // a posição no ranking de venda da categoria vai no rodapé
+                posicao: i + 1,
+                oficiais: p.oficiais,
+                catalogo: p.tipo !== 'USER_PRODUCT' || !!p.item_ids?.length,
+                preco_min: p.preco,
+                demanda: {
+                  visitas_dia: p.visitas_dia,
+                  variacao: p.variacao,
+                  direcao: p.direcao,
+                  serie: p.serie,
+                  dias: rel.janela_dias,
+                  dias_sem_visita: (p.serie || []).filter((n) => n === 0).length,
+                },
+              }}
+              janelaInicial={rel.janela_dias}
+              onPesquisar={onPesquisar}
+              rodape={
+                <button type="button" className="alta-cat" onClick={() => onVerCategoria(p.categoria.id)}>
+                  #{p.posicao} em vendas · {p.categoria.path} ›
+                </button>
+              }
+            />
+          ))}
+        </div>
+        {lista.length > limite && (
+          <button className="ghost" style={{ marginTop: 14 }} onClick={() => setLimite(limite + 24)}>
+            Mostrar mais {Math.min(24, lista.length - limite)}
+          </button>
+        )}
+      </div>
+
+      <footer>
+        Crescimento medido comparando a metade recente da janela com a anterior, nas visitas diárias dos
+        anúncios de cada produto. Visita mede procura, não venda. Em produto com muitos vendedores a
+        medição é de uma amostra dos anúncios — use o filtro de medições confiáveis.
+        Para atualizar: <code>npm run categorias</code>
+      </footer>
+    </>
+  )
+}
+
+// ===========================================================================
 // CATEGORIAS EM ALTA — qual seção do ML está esquentando.
 // ===========================================================================
 // Lê o relatório gerado por `npm run categorias`. Não calcula na hora de
@@ -784,7 +947,7 @@ function CategoriaLinha({ c, pos, aberta, onToggle, onVerProdutos }) {
 // Card de um produto do ranking (nó 2515:103 do Figma). Cada card tem a sua
 // própria janela de gráfico: trocar 30/60/90 aqui refaz só a série DESTE
 // produto, sem recarregar a categoria inteira.
-function CardAlta({ it, janelaInicial, onPesquisar }) {
+function CardAlta({ it, janelaInicial, onPesquisar, rodape = null }) {
   const [janela, setJanela] = useState(janelaInicial)
   const [dem, setDem] = useState(it.demanda)
   const [carregando, setCarregando] = useState(false)
@@ -860,6 +1023,11 @@ function CardAlta({ it, janelaInicial, onPesquisar }) {
             </span>
           )}
           {it.oficiais > 0 && <span className="alta-alerta">⚠ {it.oficiais} loja oficial vendendo</span>}
+          {it.amostra_fragil && (
+            <span className="alta-tag" title="Medimos as visitas de poucos anúncios; com muitos vendedores a tendência pode refletir só esses anúncios.">
+              ◑ {it.n_vend} vendedores — tendência medida numa amostra
+            </span>
+          )}
           {!it.catalogo && !it.sem_dados && <span className="alta-tag">anúncio próprio de vendedor</span>}
         </div>
 
@@ -892,6 +1060,8 @@ function CardAlta({ it, janelaInicial, onPesquisar }) {
           </div>
         )}
 
+        {rodape}
+
         <div className="alta-acoes">
           {it.nome && (
             <button type="button" className="alta-btn" onClick={() => onPesquisar(it.nome)}>Pesquisar</button>
@@ -904,12 +1074,15 @@ function CardAlta({ it, janelaInicial, onPesquisar }) {
 }
 
 // ===========================================================================
-// EM ALTA — o caminho inverso: parte do que o ML já vende bem.
+// MAIS VENDIDOS — o caminho inverso: parte do que o ML já vende bem.
 // ===========================================================================
-// O ranking vem de /highlights (mais vendidos da categoria, montado pelo
-// próprio ML) e os termos de /trends. Escolha a categoria FOLHA: na raiz o
-// topo é o campeão de venda do Brasil inteiro, com centenas de vendedores.
-function EmAlta({ onPesquisar, categoriaInicial = '' }) {
+// O ranking vem de /highlights: é ranking de VENDA (BEST_SELLER), montado pelo
+// próprio ML. Não é ranking de crescimento — um campeão de vendas pode estar
+// esfriando, e é por isso que cada card mostra também a tendência de visitas.
+// Quem ordena por crescimento é a aba "Em alta".
+// Escolha a categoria FOLHA: na raiz o topo é o campeão de venda do Brasil
+// inteiro, com centenas de vendedores.
+function MaisVendidos({ onPesquisar, categoriaInicial = '' }) {
   const [raizes, setRaizes] = useState([])
   const [raiz, setRaiz] = useState('')
   const [filhas, setFilhas] = useState([])
@@ -985,11 +1158,12 @@ function EmAlta({ onPesquisar, categoriaInicial = '' }) {
 
   return (
     <>
-      <div className="eyebrow">Mais vendidos · ranking do próprio Mercado Livre</div>
-      <h1>O que está em alta agora</h1>
+      <div className="eyebrow">Ranking de venda publicado pelo Mercado Livre</div>
+      <h1>Mais vendidos</h1>
       <p className="sub">
         Aqui é o contrário da calculadora: em vez de partir do seu produto, parte do que o ML{' '}
-        <b>já está vendendo bem</b>. O ranking é de <b>venda</b>, não de visita — é o próprio ML que monta.
+        <b>já está vendendo bem</b>. A ordem é de <b>venda</b>, não de crescimento — por isso um #1 pode
+        aparecer com as visitas caindo. Quem ordena por crescimento é a aba <b>Em alta</b>.
       </p>
 
       <div className="card">

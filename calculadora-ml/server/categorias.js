@@ -22,29 +22,45 @@ import { api, avaliacoes, demanda } from './alta.js'
 
 const DIR_DADOS = path.resolve(process.cwd(), 'dados')
 const ARQ = path.join(DIR_DADOS, 'categorias-alta.json')
+const ARQ_PRODUTOS = path.join(DIR_DADOS, 'produtos-em-alta.json')
 
 // --- medição de UM produto do ranking da categoria ------------------------
 // Só o que entra nas contas agregadas: preço, vendedores, avaliações e a
-// série de visitas. Nome e foto não importam aqui.
+// série de visitas — e também nome/foto, porque a aba "Em alta" mostra o
+// produto individual, não só o agregado da categoria.
 async function medirProduto(entrada, dias) {
   let itemIds = [], precos = [], nVend = null, oficiais = 0
+  let nome = null, marca = null, thumbnail = null, url = null, catalogId = null
 
   if (entrada.type === 'PRODUCT' || entrada.type === 'USER_PRODUCT') {
-    let catalogId = entrada.id
+    catalogId = entrada.id
     if (entrada.type === 'USER_PRODUCT') {
       const u = await api(`/user-products/${entrada.id}`).catch(() => null)
       catalogId = u?.catalog_product_id || null
+      nome = u?.name || u?.family_name || null
+      marca = attrValor(u?.attributes, 'BRAND')
+      thumbnail = u?.pictures?.[0]?.secure_url || u?.thumbnail || null
     }
     if (catalogId) {
-      const r = await api(`/products/${catalogId}/items`).catch(() => null)
+      const [r, p] = await Promise.all([
+        api(`/products/${catalogId}/items`).catch(() => null),
+        entrada.type === 'PRODUCT' ? api(`/products/${catalogId}`).catch(() => null) : null,
+      ])
       const res = Array.isArray(r?.results) ? r.results : []
       itemIds = res.map((x) => x.item_id).filter(Boolean)
       precos = res.map((x) => x.price).filter((v) => v != null)
       nVend = r?.paging?.total ?? res.length
       oficiais = res.filter((x) => x.official_store_id != null).length
+      if (p) {
+        nome = p.name || nome
+        marca = attrValor(p.attributes, 'BRAND') || marca
+        thumbnail = p.pictures?.[0]?.url || thumbnail
+      }
+      url = `https://www.mercadolivre.com.br/p/${catalogId}`
     }
   } else if (entrada.type === 'ITEM') {
     itemIds = [entrada.id]
+    url = `https://produto.mercadolivre.com.br/${String(entrada.id).replace('MLB', 'MLB-')}`
   }
   if (!itemIds.length) return null
 
@@ -56,14 +72,32 @@ async function medirProduto(entrada, dias) {
   if (!dem) return null
 
   return {
+    id: entrada.id,
+    tipo: entrada.type,
+    posicao: entrada.position,
+    nome, marca, thumbnail,
+    url: url || `https://www.mercadolivre.com.br/p/${entrada.id}`,
     preco: precos.length ? Math.min(...precos) : null,
     n_vend: nVend,
     oficiais,
     avaliacoes: aval?.total ?? 0,
+    nota: aval?.nota ?? null,
     visitas_dia: dem.visitas_dia,
+    variacao: dem.variacao,
     direcao: dem.direcao,
     serie: dem.serie,
+    item_ids: itemIds.slice(0, 3),
+    // Medimos as visitas de 1 anúncio; num produto com dezenas de vendedores
+    // isso é uma fatia pequena do tráfego total, e a tendência pode refletir
+    // aquele anúncio específico perdendo posição, não o produto esfriando.
+    amostra_fragil: (nVend || 0) > 6,
   }
+}
+
+const attrValor = (lista, id) => {
+  const a = (lista || []).find((x) => x?.id === id)
+  if (!a) return null
+  return a.value_name || (Array.isArray(a.values) ? a.values[0]?.name : null) || null
 }
 
 const mediana = (arr) => {
@@ -155,7 +189,41 @@ export async function analisarCategoria(catId, { dias = 30, top = 12 } = {}) {
     direcao, variacao,
     serie,
     janela_dias: dias,
+    // detalhe produto a produto — vira a aba "Em alta"
+    produtos: medidos,
   }
+}
+
+// ---------------------------------------------------------------------------
+// PRODUTOS EM ALTA — o que está subindo, de todas as categorias varridas.
+// ---------------------------------------------------------------------------
+// Achatamos os produtos medidos em cada categoria e ranqueamos por
+// crescimento. Duas travas, aprendidas na marra:
+//  - piso de tráfego: sem ele, 1 -> 4 visitas vira "+300%" e lidera a lista;
+//  - o crescimento é ponderado pelo tamanho, senão um produto de 40 visitas/dia
+//    com +200% passa na frente de um de 4.000/dia com +60%.
+const PISO_VISITAS_PRODUTO = 30
+
+export function montarProdutosEmAlta(categorias, { piso = PISO_VISITAS_PRODUTO } = {}) {
+  const saida = []
+  for (const c of categorias) {
+    for (const p of c.produtos || []) {
+      if (p.direcao !== 'subindo') continue
+      if (p.visitas_dia < piso) continue
+      if (p.variacao == null) continue
+
+      // tamanho (satura em 3.000 visitas/dia) × força do crescimento (satura
+      // em +150%). Multiplicação, não soma: precisa das duas coisas.
+      const porte = Math.min(1, Math.log10(1 + p.visitas_dia) / Math.log10(1 + 3000))
+      const forca = Math.min(1, p.variacao / 150)
+      saida.push({
+        ...p,
+        categoria: { id: c.id, nome: c.nome, path: c.path },
+        score: Math.round(100 * (0.55 * porte + 0.45 * forca)),
+      })
+    }
+  }
+  return saida.sort((a, b) => b.score - a.score)
 }
 
 // --- pontuação -------------------------------------------------------------
@@ -218,4 +286,19 @@ export function gravarRelatorio(dados) {
   return ARQ
 }
 
+export function lerProdutos() {
+  try {
+    return JSON.parse(fs.readFileSync(ARQ_PRODUTOS, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+export function gravarProdutos(dados) {
+  fs.mkdirSync(DIR_DADOS, { recursive: true })
+  fs.writeFileSync(ARQ_PRODUTOS, JSON.stringify(dados))
+  return ARQ_PRODUTOS
+}
+
 export const CAMINHO_RELATORIO = ARQ
+export const CAMINHO_PRODUTOS = ARQ_PRODUTOS

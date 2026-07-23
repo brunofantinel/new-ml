@@ -3,7 +3,7 @@ import { findCompetitor, suggestCategories, getAnuncioBase, buscarCategorias, ge
 import { pesquisarMercado, buscarAnuncios } from './mercado.js'
 import { consultarProdutoErp, consultarPorBarras, erpStatus } from './erp.js'
 import { getEmAlta, categoriasRaiz, categoriasFilhas, termosDoSite, demanda } from './alta.js'
-import { lerRelatorio, analisarCategoria, pontuar } from './categorias.js'
+import { lerRelatorio, lerProdutos, analisarCategoria, pontuar } from './categorias.js'
 
 // Handler compartilhado das rotas /api/* e /callback.
 // Usado tanto pelo dev-server do Vite (vite-plugin-api.js) quanto pelo
@@ -58,6 +58,12 @@ export async function handleApi(req, res) {
       } else {
         json(res, r)
       }
+      return true
+    }
+    // produtos que estão subindo, de todas as categorias varridas
+    if (path === '/api/produtos-em-alta') {
+      const r = lerProdutos()
+      json(res, r || { vazio: true, comando: 'npm run categorias' })
       return true
     }
     // recalcula UMA categoria na hora (botão "atualizar" da tela)
