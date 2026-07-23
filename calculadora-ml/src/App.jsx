@@ -387,14 +387,19 @@ function Produto({ onPublicar }) {
   const [busy, setBusy] = useState(false)
   const [p, setP] = useState(null)
   const [msg, setMsg] = useState(null)
+  // Mercado Livre: anúncios do produto + mapa de visitas (30/60/90 dias)
+  const [anuncios, setAnuncios] = useState({ loading: false, data: null })
+  const [dem, setDem] = useState({ loading: false, data: null })
+  const [janela, setJanela] = useState(30)
 
   async function consultar() {
     const c = cod.trim()
     if (!c) return
     setBusy(true); setMsg(null); setP(null)
+    setAnuncios({ loading: false, data: null }); setDem({ loading: false, data: null }); setJanela(30)
     try {
       const d = await fetch('/api/produto?cod=' + encodeURIComponent(c)).then((r) => r.json())
-      if (d.encontrado) setP(d)
+      if (d.encontrado) { setP(d); buscarMercado(d) }
       else setMsg({
         erp_nao_configurado: 'A conexão com o sistema da loja ainda não foi configurada (ERP_API_URL no servidor).',
         erp_indisponivel: 'O agente da loja está offline. Confira se o computador da loja está ligado e o agente rodando.',
@@ -405,6 +410,41 @@ function Produto({ onPublicar }) {
       setMsg('Não consegui consultar agora. Tente de novo.')
     }
     setBusy(false)
+  }
+
+  // Acha o produto no Mercado Livre tentando os identificadores em ordem de
+  // precisão: código de barras (GTIN) -> referência -> descrição. Depois puxa
+  // as visitas dos anúncios encontrados para montar o mapa de 30/60/90 dias.
+  async function buscarMercado(prod) {
+    const qs = new URLSearchParams()
+    if (prod.codigo_barras) qs.set('gtin', prod.codigo_barras)
+    if (prod.referencia) qs.set('ref', prod.referencia)
+    if (prod.descricao) qs.set('nome', prod.descricao)
+    if (![...qs.keys()].length) return
+    setAnuncios({ loading: true, data: null }); setDem({ loading: false, data: null })
+    try {
+      const d = await fetch('/api/anuncios?' + qs.toString()).then((r) => r.json())
+      setAnuncios({ loading: false, data: d })
+      const ids = Array.isArray(d?.anuncios) ? d.anuncios.map((a) => a.item_id).filter(Boolean) : []
+      if (ids.length) buscarVisitas(ids, 30)
+    } catch {
+      setAnuncios({ loading: false, data: null })
+    }
+  }
+
+  // Visitas dia a dia dos anúncios do produto: devolve a série (o gráfico) e a
+  // tendência (subindo/caindo/estável) numa só chamada. Mede procura, não venda.
+  async function buscarVisitas(ids, dias) {
+    if (!ids?.length) { setDem({ loading: false, data: null }); return }
+    setDem({ loading: true, data: null })
+    try {
+      const d = await fetch(
+        '/api/serie-visitas?itens=' + encodeURIComponent(ids.slice(0, 6).join(',')) + '&dias=' + dias
+      ).then((r) => r.json())
+      setDem({ loading: false, data: d?.erro ? null : d })
+    } catch {
+      setDem({ loading: false, data: null })
+    }
   }
 
   const dim = p?.dimensoes || {}
@@ -496,6 +536,116 @@ function Produto({ onPublicar }) {
             </div>
           </div>
 
+
+          {/* ── Mercado Livre: anúncios do produto ── */}
+          {(anuncios.loading || anuncios.data) && (
+            <div className="card">
+              <h2>🛒 Esse produto no Mercado Livre</h2>
+              {anuncios.loading ? (
+                <p className="spin">Procurando no Mercado Livre…</p>
+              ) : anuncios.data?.matched && (anuncios.data?.n_vendedores || 0) > 0 ? (
+                <>
+                  <div className="mkt-prod">
+                    {anuncios.data.product.thumbnail && <img src={anuncios.data.product.thumbnail} alt="" className="mkt-thumb" />}
+                    <div style={{ flex: 1 }}>
+                      <div className="mkt-name">{anuncios.data.product.name}</div>
+                      <div className="hint">
+                        {anuncios.data.n_vendedores} vendedor{anuncios.data.n_vendedores === 1 ? '' : 'es'}
+                        {anuncios.data.via ? ` · achado por ${VIA_TXT[anuncios.data.via] || 'nome'}` : ''}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="tiles" style={{ marginTop: 10 }}>
+                    <div className="tile good"><b>{money(anuncios.data.preco.min)}</b><span>menor preço</span></div>
+                    <div className="tile"><b>{money(anuncios.data.preco.mediana)}</b><span>típico</span></div>
+                    <div className="tile bad"><b>{money(anuncios.data.preco.max)}</b><span>maior preço</span></div>
+                  </div>
+                  <a className="primary" style={{ display: 'block', textAlign: 'center', marginTop: 12 }}
+                    href={anuncios.data.product.permalink} target="_blank" rel="noreferrer">
+                    Ver anúncios no Mercado Livre ▸
+                  </a>
+                  {anuncios.data.anuncios?.length > 0 && (
+                    <div className="mkt-list" style={{ marginTop: 12 }}>
+                      {anuncios.data.anuncios.slice(0, 6).map((a) => (
+                        <a className={'mkt-item' + (a.winner ? ' win' : '')} key={a.item_id}
+                          href={a.permalink} target="_blank" rel="noreferrer"
+                          style={{ textDecoration: 'none', color: 'inherit' }}>
+                          <div className="mkt-item-price">{money(a.price)}</div>
+                          <div className="mkt-item-sel">
+                            <div>{a.nickname} {a.winner && <span className="pill">buy box</span>} {a.oficial && <span className="pill">oficial</span>}</div>
+                            <div className="hint">{a.uf} · {a.tipo}{a.free_shipping ? ' · frete grátis' : ''}</div>
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="hint">
+                  Não achei anúncios ativos desse produto no ML — tentei pelo código de barras, referência e descrição.
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Mapa de visitas 30/60/90 dias (como o produto está no ML) ── */}
+          {(dem.loading || dem.data) && (
+            <div className="card">
+              <h2>📈 Como está indo no Mercado Livre <span className="pill">visitas</span></h2>
+              <div className="field">
+                <label className="plain">Janela de análise</label>
+                <div className="segmented">
+                  {[30, 60, 90].map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      className={janela === d ? 'on' : ''}
+                      onClick={() => {
+                        setJanela(d)
+                        const ids = (anuncios.data?.anuncios || []).map((a) => a.item_id).filter(Boolean)
+                        buscarVisitas(ids, d)
+                      }}
+                    >
+                      {d} dias
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {dem.loading ? (
+                <p className="spin">Medindo as visitas no ML…</p>
+              ) : dem.data?.serie?.length > 1 ? (() => {
+                const t = dem.data
+                const tom = t.direcao === 'subindo' ? 'sobe' : t.direcao === 'caindo' ? 'cai' : 'neutro'
+                const leitura = t.direcao === 'subindo' ? '▲ subindo'
+                  : t.direcao === 'caindo' ? '▼ caindo'
+                  : t.direcao === 'estavel' ? '= estável' : 'pouco movimento'
+                return (
+                  <>
+                    <div className="tiles" style={{ marginTop: 4 }}>
+                      <div className="tile"><b>{t.visitas_dia.toLocaleString('pt-BR')}</b><span>visitas/dia</span></div>
+                      <div className="tile"><b>{t.visitas.toLocaleString('pt-BR')}</b><span>em {t.dias} dias</span></div>
+                      <div className={'tile' + (tom === 'sobe' ? ' good' : tom === 'cai' ? ' bad' : '')}>
+                        <b>{leitura}</b>
+                        <span>{t.variacao != null && t.direcao !== 'pouco movimento'
+                          ? `${t.variacao > 0 ? '+' : ''}${t.variacao}% na 2ª metade` : 'tendência'}</span>
+                      </div>
+                    </div>
+                    <div style={{ marginTop: 12 }}>
+                      <GraficoVisitas serie={t.serie} dias={t.dias} tom={tom} />
+                    </div>
+                    <div className="hint" style={{ marginTop: 6 }}>
+                      Um ponto por dia, até ontem — hoje ainda está correndo. Somado dos anúncios do produto.
+                      Visita mede procura/interesse, não venda.
+                      {t.dias_sem_visita > 0 &&
+                        ` ${t.dias_sem_visita} ${t.dias_sem_visita === 1 ? 'dia ficou' : 'dias ficaram'} sem nenhuma visita.`}
+                    </div>
+                  </>
+                )
+              })() : (
+                <div className="hint">Sem visitas suficientes para medir esse produto no ML.</div>
+              )}
+            </div>
+          )}
 
           {p.observacao && (
             <div className="card"><h2>Observação</h2><div className="hint">{p.observacao}</div></div>
