@@ -205,6 +205,160 @@ export async function findCompetitor(query) {
   return { matched: true, reason: 'ok', ...candidatos[0], candidatos }
 }
 
+// ---------------------------------------------------------------------------
+// PESO E MEDIDAS DA EMBALAGEM a partir do anúncio no ML.
+// ---------------------------------------------------------------------------
+// Quem já vende o produto precisou declarar o pacote pro ML calcular o frete.
+// Esses números ficam nos atributos PACKAGE_* do anúncio (e às vezes em
+// shipping.dimensions, no formato "AxLxC,pesoG"). Servem de ponto de partida
+// pro passo 3 — a pessoa confere e edita se a embalagem dela for outra.
+
+// Conversões: o ML devolve a unidade junto do número, e ela varia por anúncio.
+const PARA_KG = { kg: 1, g: 0.001, mg: 0.000001, lb: 0.45359237, oz: 0.0283495 }
+const PARA_CM = { cm: 1, mm: 0.1, m: 100, in: 2.54, '"': 2.54, ft: 30.48 }
+
+const arredondar = (n, casas) => Math.round(n * 10 ** casas) / 10 ** casas
+
+// Lê o primeiro atributo da lista `ids` e converte pra kg/cm. Devolve null se
+// não achar, se o número não fizer sentido ou se a unidade for desconhecida
+// (melhor ficar sem o dado do que chutar uma unidade errada).
+function medidaAttr(attrs, ids, tabela, casas) {
+  for (const id of ids) {
+    const a = attrs.find((x) => x?.id === id)
+    if (!a) continue
+    let numero = null
+    let unidade = null
+    if (a.value_struct && a.value_struct.number != null) {
+      numero = Number(a.value_struct.number)
+      unidade = a.value_struct.unit
+    } else if (a.value_name) {
+      const m = String(a.value_name).match(/^\s*([\d.,]+)\s*([^\s\d]+)?/)
+      if (m) {
+        numero = Number(m[1].replace(/\.(?=\d{3}\b)/g, '').replace(',', '.'))
+        unidade = m[2]
+      }
+    }
+    if (!Number.isFinite(numero) || numero <= 0) continue
+    const fator = tabela[String(unidade || '').trim().toLowerCase()]
+    if (!fator) continue
+    return arredondar(numero * fator, casas)
+  }
+  return null
+}
+
+// Medidas da EMBALAGEM (é o que interessa pro frete).
+function pacoteDosAtributos(attrs) {
+  const A = Array.isArray(attrs) ? attrs : []
+  return {
+    peso_kg: medidaAttr(A, ['PACKAGE_WEIGHT', 'SHIPPING_WEIGHT'], PARA_KG, 3),
+    altura_cm: medidaAttr(A, ['PACKAGE_HEIGHT'], PARA_CM, 1),
+    largura_cm: medidaAttr(A, ['PACKAGE_WIDTH'], PARA_CM, 1),
+    comprimento_cm: medidaAttr(A, ['PACKAGE_LENGTH'], PARA_CM, 1),
+  }
+}
+
+// Medidas do PRODUTO em si (sem caixa) — reserva, quando ninguém declarou o
+// pacote. Vai marcada como fonte 'produto' pra tela avisar que falta a embalagem.
+function produtoDosAtributos(attrs) {
+  const A = Array.isArray(attrs) ? attrs : []
+  return {
+    peso_kg: medidaAttr(A, ['WEIGHT', 'NET_WEIGHT', 'UNIT_WEIGHT'], PARA_KG, 3),
+    altura_cm: medidaAttr(A, ['HEIGHT'], PARA_CM, 1),
+    largura_cm: medidaAttr(A, ['WIDTH'], PARA_CM, 1),
+    comprimento_cm: medidaAttr(A, ['LENGTH', 'DEPTH'], PARA_CM, 1),
+  }
+}
+
+// shipping.dimensions do anúncio: "30x20x10,500" = A x L x C em cm, peso em g.
+function pacoteDoShipping(item) {
+  const d = item?.shipping?.dimensions
+  const m = typeof d === 'string' && d.match(/^\s*(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)\s*(?:,\s*(\d+(?:\.\d+)?))?/i)
+  if (!m) return null
+  return {
+    altura_cm: Number(m[1]) || null,
+    largura_cm: Number(m[2]) || null,
+    comprimento_cm: Number(m[3]) || null,
+    peso_kg: m[4] ? arredondar(Number(m[4]) / 1000, 3) : null,
+  }
+}
+
+const temTudo = (s) => !!(s && s.peso_kg && s.altura_cm && s.largura_cm && s.comprimento_cm)
+
+// Junta dois conjuntos preenchendo só os buracos do primeiro.
+function completar(base, extra) {
+  if (!extra) return base
+  const out = { ...base }
+  for (const k of ['peso_kg', 'altura_cm', 'largura_cm', 'comprimento_cm']) {
+    if (out[k] == null && extra[k] != null) out[k] = extra[k]
+  }
+  return out
+}
+
+// Devolve { encontrado, peso_kg, altura_cm, largura_cm, comprimento_cm, fonte }.
+// fonte: 'anuncio' = embalagem declarada por quem vende | 'produto' = medidas do
+// produto no catálogo (sem a caixa).
+export async function getPacoteAnuncio(catalogId, itemId) {
+  // 1) anúncios reais do produto — preferimos o item que o app já escolheu
+  const ids = []
+  if (itemId) ids.push(itemId)
+  if (catalogId) {
+    try {
+      const r = await mlGet(`/products/${catalogId}/items`)
+      for (const it of Array.isArray(r?.results) ? r.results : []) {
+        if (it?.item_id) ids.push(it.item_id)
+      }
+    } catch {}
+  }
+  const unicos = [...new Set(ids)].slice(0, 4)
+  const itens = await Promise.all(unicos.map((id) => mlGet(`/items/${id}`).catch(() => null)))
+
+  const candidatos = []
+  for (const it of itens) {
+    if (!it) continue
+    // shipping.dimensions é o que o ML usa pra cobrar; os atributos completam
+    const s = completar(pacoteDoShipping(it) || {
+      peso_kg: null, altura_cm: null, largura_cm: null, comprimento_cm: null,
+    }, pacoteDosAtributos(it.attributes))
+    candidatos.push({ ...s, fonte: 'anuncio' })
+  }
+
+  // 2) reserva: o próprio produto do catálogo
+  let doCatalogo = null
+  if (catalogId) {
+    const p = await mlGet(`/products/${catalogId}`).catch(() => null)
+    if (p) {
+      candidatos.push({ ...pacoteDosAtributos(p.attributes), fonte: 'anuncio' })
+      doCatalogo = { ...produtoDosAtributos(p.attributes), fonte: 'produto' }
+    }
+  }
+
+  // Preferimos um conjunto COMPLETO de um único anúncio (não misturar a caixa
+  // de um vendedor com a de outro). Só se ninguém tiver tudo é que juntamos.
+  let escolhido =
+    candidatos.find(temTudo) ||
+    (temTudo(doCatalogo) ? doCatalogo : null)
+
+  if (!escolhido) {
+    const juntos = candidatos.reduce((acc, c) => completar(acc, c), {
+      peso_kg: null, altura_cm: null, largura_cm: null, comprimento_cm: null,
+    })
+    if (juntos.peso_kg || juntos.altura_cm) escolhido = { ...juntos, fonte: 'anuncio' }
+    else if (doCatalogo && (doCatalogo.peso_kg || doCatalogo.altura_cm)) escolhido = doCatalogo
+  }
+
+  if (!escolhido) return { encontrado: false, catalog_id: catalogId || null }
+  return {
+    encontrado: true,
+    catalog_id: catalogId || null,
+    peso_kg: escolhido.peso_kg ?? null,
+    altura_cm: escolhido.altura_cm ?? null,
+    largura_cm: escolhido.largura_cm ?? null,
+    comprimento_cm: escolhido.comprimento_cm ?? null,
+    completo: temTudo(escolhido),
+    fonte: escolhido.fonte,
+  }
+}
+
 // Monta a BASE de um anúncio para o painel de revisão (NÃO publica nada).
 // Quando o produto existe no catálogo do ML, traz título, fotos e atributos
 // prontos (é o que o ML preencheria sozinho ao anunciar em cima do catálogo).

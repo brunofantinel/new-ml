@@ -733,6 +733,33 @@ button.ghost {
   gap: 2px;
 }
 
+/* ===== Peso/medidas vindos do anúncio do ML ============================= */
+.ml-pack {
+  background: var(--c-teal-050);
+  border: var(--bw-thin) solid var(--c-teal-200);
+  border-radius: var(--r-md);
+  padding: var(--sp-4) var(--sp-5);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+.ml-pack-txt {
+  font-size: var(--fs-12);
+  line-height: var(--lh-snug);
+  color: var(--c-green-800);
+  flex: 1 1 220px;
+}
+.ml-pack-txt b { font-weight: var(--fw-bold); }
+.ml-pack-src {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-11);
+  color: var(--c-green-600);
+}
+.ml-pack .ghost { width: auto; white-space: nowrap; }
+
 /* ===== Comparativo de modalidades de envio =============================== */
 .mod-list { display: flex; flex-direction: column; gap: var(--sp-2); }
 .mod-item {

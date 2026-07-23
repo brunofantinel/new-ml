@@ -789,6 +789,12 @@ function Calculator() {
   const [tendencia, setTendencia] = useState({ loading: false, data: null })
   const [janelaDias, setJanelaDias] = useState(60) // janela do termômetro de procura
   const [anuncioPrep, setAnuncioPrep] = useState({ loading: false, data: null })
+  // peso/medidas da embalagem lidos do anúncio do ML (produto do carrossel)
+  const [pacoteMl, setPacoteMl] = useState({ loading: false, data: null })
+  // de onde veio o que está nos campos do passo 3: null | 'banco' | 'anuncio' | 'manual'.
+  // O que veio do BANCO ou foi digitado à MÃO nunca é sobrescrito sozinho.
+  const [fontePacote, setFontePacote] = useState({ peso: null, medidas: null })
+  const fontePacoteRef = useRef(fontePacote) // leitura dentro de callbacks async
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
   // Campo HÍBRIDO da categoria. Ele mostra o id do ML (MLB1234) que veio do
@@ -802,6 +808,17 @@ function Calculator() {
 
   const upd = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
 
+  function marcarFonte(patch) {
+    fontePacoteRef.current = { ...fontePacoteRef.current, ...patch }
+    setFontePacote(fontePacoteRef.current)
+  }
+  // Peso e medidas: digitar à mão vira a fonte da verdade (o auto-preenchimento
+  // do anúncio não passa por cima depois).
+  const updPacote = (k) => (e) => {
+    marcarFonte(k === 'pesoKg' ? { peso: 'manual' } : { medidas: 'manual' })
+    upd(k)(e)
+  }
+
   // Limpa TUDO que era do produto anterior — chamado ao pesquisar/puxar um novo,
   // pra a tela nunca misturar dados de dois produtos.
   function limparResultados() {
@@ -811,6 +828,7 @@ function Calculator() {
     setAnuncios({ loading: false, data: null })
     setTendencia({ loading: false, data: null })
     setAnuncioPrep({ loading: false, data: null })
+    setPacoteMl({ loading: false, data: null })
   }
 
   // term: texto a pesquisar (default = campo título). autoPick: quando true, já
@@ -838,6 +856,9 @@ function Calculator() {
       }
       setComp(compD)
       setCats(list)
+      // o 1º candidato já vem selecionado no carrossel — puxa o pacote dele
+      const cand0 = compD?.candidatos?.[0] || (compD?.matched ? compD : null)
+      if (cand0) puxarPacoteMl(cand0)
       if (list.length) {
         aplicarCategoria(list[0].category_id, list[0].category_name)
       } else {
@@ -887,6 +908,46 @@ function Calculator() {
     }, 350)
   }
 
+  // Peso e medidas da EMBALAGEM do produto escolhido no carrossel: quem já
+  // vende teve que declarar isso pro ML calcular o frete. Preenche o passo 3
+  // sozinho — e a pessoa pode editar depois (ou o valor do banco tem prioridade).
+  async function puxarPacoteMl(cand) {
+    if (!cand?.catalog_id && !cand?.item_id) return
+    setPacoteMl({ loading: true, data: null })
+    try {
+      const qs = new URLSearchParams()
+      if (cand.catalog_id) qs.set('catalog_id', cand.catalog_id)
+      if (cand.item_id) qs.set('item_id', cand.item_id)
+      const d = await fetch('/api/pacote?' + qs.toString()).then((r) => r.json())
+      const achou = d?.encontrado ? d : null
+      setPacoteMl({ loading: false, data: achou })
+      if (achou) aplicarPacote(achou, false)
+    } catch {
+      setPacoteMl({ loading: false, data: null })
+    }
+  }
+
+  // Joga o pacote do anúncio nos campos. forcar = clique em "Usar estes dados"
+  // (aí passa por cima até do que veio do banco / foi digitado).
+  function aplicarPacote(p, forcar) {
+    const fixo = (v) => ['banco', 'manual'].includes(v)
+    const usarPeso = p.peso_kg != null && (forcar || !fixo(fontePacoteRef.current.peso))
+    const temMedidas = p.altura_cm != null && p.largura_cm != null && p.comprimento_cm != null
+    const usarMedidas = temMedidas && (forcar || !fixo(fontePacoteRef.current.medidas))
+    if (!usarPeso && !usarMedidas) return
+    setF((prev) => ({
+      ...prev,
+      pesoKg: usarPeso ? String(p.peso_kg) : prev.pesoKg,
+      alt: usarMedidas ? String(p.altura_cm) : prev.alt,
+      larg: usarMedidas ? String(p.largura_cm) : prev.larg,
+      comp: usarMedidas ? String(p.comprimento_cm) : prev.comp,
+    }))
+    marcarFonte({
+      ...(usarPeso ? { peso: 'anuncio' } : null),
+      ...(usarMedidas ? { medidas: 'anuncio' } : null),
+    })
+  }
+
   function pickCat(c) {
     // Mantém a lista na tela (não limpa) — só troca a categoria escolhida.
     aplicarCategoria(c.category_id, c.category_name)
@@ -898,6 +959,13 @@ function Calculator() {
     setProdutoDb(d)
     const dim = d.dimensoes || {}
     const peso = dim.peso_emb_kg || dim.peso_unit_kg
+    // o que o banco souber tem prioridade sobre o que vier do anúncio do ML
+    marcarFonte({
+      peso: peso != null ? 'banco' : null,
+      medidas: (dim.altura_cm != null && dim.largura_cm != null && dim.comprimento_cm != null)
+        ? 'banco'
+        : null,
+    })
     setF((prev) => ({
       ...prev,
       // já assume o preço de venda cadastrado no banco (o usuário pode editar)
@@ -1035,8 +1103,8 @@ function Calculator() {
       modelo: attr('MODEL') || produtoDb?.referencia || null,
       gtin: produtoDb?.codigo_barras || null,
       ncm: produtoDb?.ncm || null,
-      pesoKg: parseFloat(f.pesoKg) || null,          // MANUAL (passo 3)
-      dimensoes: (f.alt && f.larg && f.comp) ? `${f.alt} × ${f.larg} × ${f.comp} cm` : null, // MANUAL
+      pesoKg: parseFloat(f.pesoKg) || null,          // passo 3 (banco, anúncio ou digitado)
+      dimensoes: (f.alt && f.larg && f.comp) ? `${f.alt} × ${f.larg} × ${f.comp} cm` : null,
       fotos: base.catalog?.pictures || [],
       atributosObrigatorios: base.required_attributes || [],
     }
@@ -1139,6 +1207,8 @@ function Calculator() {
     if (!cand) return
     // escolher o produto no carrossel já puxa o id da categoria dele
     if (cand.category_id) aplicarCategoria(cand.category_id, cand.category_name || 'mesma do concorrente')
+    // ...e o peso/medidas da embalagem que quem vende declarou pro ML
+    puxarPacoteMl(cand)
     buscarAnunciosProduto(cand.name)
   }
 
@@ -1374,26 +1444,61 @@ function Calculator() {
             </div>
             <div className="field">
               <label>Peso da encomenda pronta (kg)</label>
-              <input type="number" step="0.01" value={f.pesoKg} onChange={upd('pesoKg')} />
+              <input type="number" step="0.01" value={f.pesoKg} onChange={updPacote('pesoKg')} />
             </div>
             {/* dimensions-row do design: cada medida com seu próprio rótulo */}
             <div className="field">
               <div className="row3">
                 <div className="field">
                   <label className="plain">Altura (cm)</label>
-                  <input type="number" placeholder="0" value={f.alt} onChange={upd('alt')} />
+                  <input type="number" placeholder="0" value={f.alt} onChange={updPacote('alt')} />
                 </div>
                 <div className="field">
                   <label className="plain">Largura (cm)</label>
-                  <input type="number" placeholder="0" value={f.larg} onChange={upd('larg')} />
+                  <input type="number" placeholder="0" value={f.larg} onChange={updPacote('larg')} />
                 </div>
                 <div className="field">
                   <label className="plain">Comprimento (cm)</label>
-                  <input type="number" placeholder="0" value={f.comp} onChange={upd('comp')} />
+                  <input type="number" placeholder="0" value={f.comp} onChange={updPacote('comp')} />
                 </div>
               </div>
               <div className="hint">Sem as medidas eu calculo comissão e custo fixo, mas não consigo o frete real.</div>
             </div>
+
+            {/* Pacote lido do anúncio do ML (produto escolhido no passo 2).
+                Preenche sozinho quando os campos não vieram do banco nem foram
+                digitados; sempre dá pra editar em cima ou trazer de volta. */}
+            {pacoteMl.loading && (
+              <div className="hint">Buscando peso e medidas no anúncio do Mercado Livre…</div>
+            )}
+            {pacoteMl.data && (
+              <div className="ml-pack">
+                <div className="ml-pack-txt">
+                  <b>📦 No anúncio do Mercado Livre:</b>{' '}
+                  {pacoteMl.data.peso_kg != null ? `${pacoteMl.data.peso_kg} kg` : 'peso não informado'}
+                  {' · '}
+                  {pacoteMl.data.altura_cm != null && pacoteMl.data.largura_cm != null && pacoteMl.data.comprimento_cm != null
+                    ? `${pacoteMl.data.altura_cm} × ${pacoteMl.data.largura_cm} × ${pacoteMl.data.comprimento_cm} cm`
+                    : 'medidas não informadas'}
+                  <span className="ml-pack-src">
+                    {pacoteMl.data.fonte === 'produto'
+                      ? 'Medidas do produto (sem a embalagem) — confira antes de usar.'
+                      : 'Embalagem declarada por quem vende esse produto.'}
+                  </span>
+                </div>
+                <button type="button" className="ghost" onClick={() => aplicarPacote(pacoteMl.data, true)}>
+                  Usar estes dados
+                </button>
+              </div>
+            )}
+            {(fontePacote.peso === 'anuncio' || fontePacote.medidas === 'anuncio') && (
+              <div className="hint">
+                ✓ {fontePacote.peso === 'anuncio' && fontePacote.medidas === 'anuncio'
+                  ? 'Peso e medidas preenchidos'
+                  : fontePacote.peso === 'anuncio' ? 'Peso preenchido' : 'Medidas preenchidas'}
+                {' '}pelo anúncio do ML. Se a sua embalagem for outra, é só editar acima.
+              </div>
+            )}
 
             {/* Peso cobrável e limites — recalculado enquanto você digita. */}
             <div className={'pack-box' + (limites.ok ? '' : ' bad')}>
