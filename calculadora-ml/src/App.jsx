@@ -1260,7 +1260,7 @@ function Calculator() {
               </div>
             </div>
             <div className="field">
-              <label>category_id (MLB...)</label>
+              <label>Id da categoria no Mercado Livre</label>
               <input placeholder="MLB1234" value={f.categoryId} onChange={upd('categoryId')} />
             </div>
             <div className="field">
