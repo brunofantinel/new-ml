@@ -80,6 +80,82 @@ export async function suggestCategories(query) {
   return out
 }
 
+// ---------------------------------------------------------------------------
+// Busca de CATEGORIA por nome (não por produto).
+// ---------------------------------------------------------------------------
+// suggestCategories() acima parte de um PRODUTO e deduz a categoria dele. Isso
+// erra feio quando a pessoa digita um termo geral: "Blocos e Formas de Montar"
+// cai em "Blocos de Motores" de autopeças, porque o texto casa com anúncios de
+// peças. Aqui é o caminho contrário — procuramos na árvore de categorias do ML
+// pelo NOME, que é o que a pessoa espera ao digitar "Eletrônicos".
+//
+// Carregamos os dois primeiros níveis (≈30 raízes + os filhos delas) uma única
+// vez por processo; é o suficiente pra alguém escolher uma categoria geral, e
+// evita baixar a árvore inteira, que tem milhares de nós.
+let _arvoreCache = null
+async function categoriasAteNivel2() {
+  if (_arvoreCache) return _arvoreCache
+  const raizes = await mlGet('/sites/MLB/categories')
+  const lista = []
+  for (const r of raizes) lista.push({ id: r.id, name: r.name, path: r.name })
+  const detalhes = await Promise.all(
+    raizes.map((r) => mlGet(`/categories/${r.id}`).catch(() => null))
+  )
+  detalhes.forEach((d, i) => {
+    const raiz = raizes[i]
+    for (const filho of d?.children_categories || []) {
+      lista.push({ id: filho.id, name: filho.name, path: `${raiz.name} > ${filho.name}` })
+    }
+  })
+  _arvoreCache = lista
+  return lista
+}
+
+// "Eletrônicos" e "eletronicos" têm que casar.
+const semAcento = (s) =>
+  String(s || '')
+    .normalize('NFD')
+    // tira os diacriticos (faixa combining U+0300-U+036F) sem depender de
+    // caracteres literais no fonte, que quebram se o arquivo mudar de encoding
+    .split('')
+    .filter((ch) => { const c = ch.charCodeAt(0); return c < 0x0300 || c > 0x036f })
+    .join('')
+    .toLowerCase()
+
+export async function buscarCategorias(query) {
+  const q = semAcento(query).trim()
+  if (!q) return []
+  const todas = await categoriasAteNivel2()
+  const termos = q.split(/\s+/).filter(Boolean)
+
+  // pontua por quão forte é o casamento no NOME da categoria; o caminho conta
+  // pouco, só pra desempatar
+  const pontuar = (c) => {
+    const nome = semAcento(c.name)
+    const caminho = semAcento(c.path)
+    let p = 0
+    for (const t of termos) {
+      if (nome === t) p += 100
+      else if (nome.startsWith(t)) p += 50
+      else if (nome.includes(t)) p += 30
+      else if (caminho.includes(t)) p += 10
+    }
+    return p
+  }
+
+  return todas
+    .map((c) => ({ c, p: pontuar(c) }))
+    .filter((x) => x.p > 0)
+    .sort((a, b) => b.p - a.p || a.c.path.length - b.c.path.length)
+    .slice(0, 8)
+    .map(({ c }) => ({
+      category_id: c.id,
+      category_name: c.name,
+      category_path: c.path,
+      source: 'categoria',
+    }))
+}
+
 // Busca um produto no catálogo pelo nome e devolve o MENOR preço praticado hoje
 // (usa /products/{id}/items, que traz preço mesmo sem login de vendedor).
 export async function findCompetitor(query) {

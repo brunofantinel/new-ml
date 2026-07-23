@@ -795,6 +795,7 @@ function Calculator() {
   // que o app detectou pelo produto parseado — o usuário só edita se quiser
   // buscar por uma categoria mais geral.
   const [buscaCat, setBuscaCat] = useState('')
+  const [buscandoCat, setBuscandoCat] = useState(false)
 
   const upd = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
 
@@ -848,9 +849,26 @@ function Calculator() {
     setPredicting(false)
   }
 
-  // Sempre que a categoria mudar (por parse do produto ou por escolha nos
-  // chips), o campo de busca acompanha.
+  // Sempre que a categoria mudar (por parse do produto ou por escolha na
+  // lista), o campo de busca acompanha.
   useEffect(() => { setBuscaCat(f.categoryName || '') }, [f.categoryName])
+
+  // Busca de CATEGORIA por nome — o caminho pra quando o produto não foi
+  // achado e nenhuma categoria veio junto. A pessoa digita algo geral
+  // ("eletrônicos") e escolhe na lista. Diferente de predict(), aqui NÃO
+  // mexemos no produto/candidatos nem escolhemos nada sozinhos.
+  async function buscarCategoria() {
+    const q = buscaCat.trim()
+    if (!q) return
+    setBuscandoCat(true)
+    try {
+      const d = await fetch('/api/buscar-categoria?q=' + encodeURIComponent(q)).then((r) => r.json())
+      setCats(Array.isArray(d) ? d : [])
+    } catch {
+      setCats([])
+    }
+    setBuscandoCat(false)
+  }
 
   function pickCat(c) {
     // Mantém os chips na tela (não limpa) — só troca a categoria escolhida.
@@ -1251,11 +1269,11 @@ function Calculator() {
                     placeholder="Ex: Eletrônicos, Jardim"
                     value={buscaCat}
                     onChange={(e) => setBuscaCat(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') predict(buscaCat) }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') buscarCategoria() }}
                   />
                 </div>
-                <button className="cat-search-btn" onClick={() => predict(buscaCat)} disabled={predicting}>
-                  {predicting ? '…' : 'Buscar'}
+                <button className="cat-search-btn" onClick={buscarCategoria} disabled={buscandoCat}>
+                  {buscandoCat ? '…' : 'Buscar'}
                 </button>
               </div>
             </div>

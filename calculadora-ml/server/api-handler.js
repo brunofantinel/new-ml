@@ -1,5 +1,5 @@
 import { authStatus, getFees, buildAuthUrl, exchangeCode, getCatalogLive, getTendenciaVisitas } from './ml.js'
-import { findCompetitor, suggestCategories, getAnuncioBase } from './catalog.js'
+import { findCompetitor, suggestCategories, getAnuncioBase, buscarCategorias } from './catalog.js'
 import { pesquisarMercado, buscarAnuncios } from './mercado.js'
 import { consultarProdutoErp, consultarPorBarras, erpStatus } from './erp.js'
 
@@ -30,6 +30,9 @@ export async function handleApi(req, res) {
     if (path === '/api/auth/status') { json(res, authStatus()); return true }
     if (path === '/api/predict-category') { json(res, await suggestCategories(url.searchParams.get('q') || '')); return true }
     if (path === '/api/competitor') { json(res, await findCompetitor(url.searchParams.get('q') || '')); return true }
+    // busca de CATEGORIA por nome (ex: "eletronicos") — diferente de
+    // /api/predict-category, que parte de um produto
+    if (path === '/api/buscar-categoria') { json(res, await buscarCategorias(url.searchParams.get('q') || '')); return true }
     if (path === '/api/anuncio') { json(res, await getAnuncioBase(url.searchParams.get('catalog_id') || '', url.searchParams.get('category_id') || '')); return true }
     if (path === '/api/fees') { json(res, await getFees(Object.fromEntries(url.searchParams))); return true }
     if (path === '/api/mercado') { json(res, await pesquisarMercado(url.searchParams.get('q') || '')); return true }
