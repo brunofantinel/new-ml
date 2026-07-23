@@ -390,3 +390,88 @@ export async function getTendenciaVisitas(itemIds, dias = 60) {
     sinal_fraco: total < 15, // pouco tráfego => sinal ruidoso
   }
 }
+
+// ===========================================================================
+// Meus Anúncios — lista os anúncios da conta do vendedor com suas métricas.
+// Precisa do token de VENDEDOR (dá sold_quantity, health e estoque reais).
+// Fluxo: /users/{uid}/items/search (ids) -> /items?ids= (detalhes, lote de 20)
+//        -> /visits/items?ids= (visitas totais, lote de 20).
+// Paginado por offset (50/pág). Acima de 1000 itens o ML exige search_type=scan
+// (fora do escopo por ora — a grande maioria dos vendedores fica bem abaixo).
+// ===========================================================================
+const ITEM_ATTRS = [
+  'id', 'title', 'price', 'base_price', 'original_price', 'currency_id',
+  'available_quantity', 'sold_quantity', 'status', 'sub_status', 'health',
+  'listing_type_id', 'condition', 'permalink', 'thumbnail', 'catalog_listing',
+  'catalog_product_id', 'category_id', 'shipping', 'date_created', 'last_updated',
+].join(',')
+
+// quebra um array em blocos de n
+function emLotes(arr, n) {
+  const out = []
+  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n))
+  return out
+}
+
+export async function getMeusAnuncios({ limit = 50, offset = 0 } = {}) {
+  const uid = authStatus().user_id
+  if (!uid) throw Object.assign(new Error('vendedor_nao_conectado'), { status: 401 })
+
+  const lim = Math.min(Math.max(Number(limit) || 50, 1), 100)
+  const off = Math.max(Number(offset) || 0, 0)
+
+  // 1) IDs dos anúncios (mais novos primeiro)
+  const search = await mlGet(`/users/${uid}/items/search?orders=start_time_desc&limit=${lim}&offset=${off}`)
+  const ids = Array.isArray(search?.results) ? search.results : []
+  const paging = search?.paging || { total: ids.length, limit: lim, offset: off }
+  if (!ids.length) return { paging, results: [] }
+
+  // 2) detalhes em lotes de 20 (multiget verbose: [{code, body}])
+  const detalhes = []
+  for (const lote of emLotes(ids, 20)) {
+    try {
+      const resp = await mlGet(`/items?ids=${lote.join(',')}&attributes=${ITEM_ATTRS}`)
+      for (const r of (Array.isArray(resp) ? resp : [])) {
+        if (r?.code === 200 && r?.body) detalhes.push(r.body)
+      }
+    } catch { /* pula o lote que falhar */ }
+  }
+
+  // 3) visitas totais por anúncio (lote), num único mapa { id: visitas }
+  const visitas = {}
+  for (const lote of emLotes(ids, 20)) {
+    try { Object.assign(visitas, await mlGet(`/visits/items?ids=${lote.join(',')}`)) } catch { /* tolera */ }
+  }
+
+  // 4) mantém a ordem original de `ids` e monta o objeto enxuto por anúncio
+  const porId = new Map(detalhes.map((it) => [it.id, it]))
+  const results = ids.map((id) => {
+    const it = porId.get(id)
+    if (!it) return null
+    return {
+      id: it.id,
+      title: it.title || '',
+      price: it.price ?? null,
+      original_price: it.original_price ?? null,
+      currency: it.currency_id || 'BRL',
+      available: it.available_quantity ?? null,
+      sold: it.sold_quantity ?? null,
+      visits: visitas[id] ?? null,
+      health: typeof it.health === 'number' ? it.health : null,
+      status: it.status || null,
+      sub_status: Array.isArray(it.sub_status) ? it.sub_status : [],
+      listing_type: it.listing_type_id || null,
+      condition: it.condition || null,
+      permalink: it.permalink || null,
+      thumbnail: it.thumbnail || null,
+      catalog: !!it.catalog_listing,
+      category_id: it.category_id || null,
+      logistic_type: it.shipping?.logistic_type || null,
+      free_shipping: it.shipping?.free_shipping ?? null,
+      date_created: it.date_created || null,
+      last_updated: it.last_updated || null,
+    }
+  }).filter(Boolean)
+
+  return { paging, results }
+}
