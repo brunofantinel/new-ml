@@ -291,6 +291,211 @@ button.ghost {
   filter: var(--shadow-segment-on);
 }
 
+/* ===== Qual seu produto? — cabeçalho + carrossel (nó 2484:3143) ========= */
+.prod-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-5); }
+.prod-header-txt { display: flex; flex-direction: column; gap: var(--sp-1); }
+.prod-header-txt .t {
+  margin: 0;
+  font-size: var(--fs-18);
+  font-weight: var(--fw-extrabold);
+  line-height: var(--lh-tight);
+  color: var(--c-teal-900);
+  text-transform: uppercase;
+}
+.prod-header-txt .d { margin: 0; font-size: var(--fs-12); font-weight: var(--fw-medium); color: var(--c-white); }
+.prod-badge {
+  flex: 0 0 auto;
+  background: var(--c-surface);
+  color: var(--c-text-muted);
+  border-radius: var(--r-xs);
+  padding: var(--sp-1) var(--sp-4);
+  font-size: var(--fs-11);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* trilho horizontal — os cards rolam no eixo X, como no design */
+.prod-track {
+  display: flex;
+  gap: var(--sp-3);
+  overflow-x: auto;
+  padding-bottom: var(--sp-2);
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x mandatory;
+}
+.prod-track::-webkit-scrollbar { height: 6px; }
+.prod-track::-webkit-scrollbar-thumb { background: var(--c-line); border-radius: var(--r-xs); }
+.prod-card {
+  flex: 0 0 150px;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  background: var(--c-white);
+  border: var(--bw-thin) solid var(--c-line);
+  border-radius: var(--r-lg);
+  padding: var(--sp-4);
+  filter: var(--shadow-card);
+}
+.prod-card.on { background: var(--c-teal-050); border: 2px solid var(--c-green-600); }
+.prod-sel {
+  align-self: stretch;
+  background: var(--c-teal-050);
+  color: var(--c-green-600);
+  border-radius: var(--r-2xl);
+  padding: var(--sp-1) var(--sp-4);
+  font-size: var(--fs-10);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  text-align: center;
+}
+.prod-pic {
+  height: 120px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-md);
+  background: var(--c-surface);
+  overflow: hidden;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.prod-pic img { width: 100%; height: 100%; object-fit: cover; }
+.prod-pic-vazia { font-size: var(--fs-10); color: var(--c-text-faint); }
+.prod-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font-family: var(--font-sans);
+}
+.prod-info .nome {
+  font-size: var(--fs-12);
+  font-weight: var(--fw-semibold);
+  line-height: 1.3;
+  color: var(--c-teal-900);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.prod-info .lojas { font-size: var(--fs-12); font-weight: var(--fw-semibold); color: var(--c-teal-700); }
+.prod-info .preco { font-size: var(--fs-18); font-weight: var(--fw-extrabold); color: var(--c-teal-700); }
+.prod-card.on .lojas, .prod-card.on .preco { color: var(--c-green-600); }
+.prod-info .cat { font-size: var(--fs-10); font-weight: var(--fw-medium); color: var(--c-text-muted); text-transform: uppercase; }
+.prod-cta {
+  margin-top: auto;
+  border-top: var(--bw-thin) solid var(--c-line);
+  padding-top: var(--sp-3);
+  text-align: center;
+  font-size: var(--fs-11);
+  font-weight: var(--fw-bold);
+  color: var(--c-teal-700);
+  text-decoration: none;
+}
+.prod-card.on .prod-cta { color: var(--c-green-600); }
+
+/* ===== Campo do id da categoria com ícone (nó 2484:3106) ================ */
+.id-field {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  height: var(--h-input);
+  padding: 0 var(--sp-7);
+  background: var(--c-white);
+  border: var(--bw-thick) solid var(--c-teal-900);
+  border-radius: var(--r-xl);
+}
+.id-field img { width: 18px; height: 18px; flex: 0 0 18px; }
+.id-field input {
+  flex: 1;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: var(--fs-15);
+  font-weight: var(--fw-semibold);
+}
+.id-field input:focus { outline: none; border: 0; }
+
+/* ===== Categoria escolhida (nó 2484:3181) ============================== */
+.cat-chosen {
+  background: var(--c-teal-050);
+  border: var(--bw-thin) solid var(--c-teal-200);
+  border-radius: var(--r-lg);
+  padding: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.cat-chosen .t { margin: 0; font-size: var(--fs-13); font-weight: var(--fw-bold); color: var(--c-green-800); }
+.cat-chosen .t span { font-family: var(--font-mono); font-weight: var(--fw-regular); }
+.cat-chosen .p { margin: 0; font-size: var(--fs-11); font-weight: var(--fw-medium); color: var(--c-green-600); }
+
+/* ===== Resultados da busca (nó 2484:3195) ============================== */
+.res-title { display: flex; flex-direction: column; gap: var(--sp-2); }
+.res-title .t {
+  margin: 0;
+  font-size: var(--fs-20);
+  font-weight: var(--fw-extrabold);
+  line-height: var(--lh-tight);
+  color: var(--c-teal-900);
+}
+.res-title .d { margin: 0; font-size: var(--fs-13); color: var(--c-white); }
+
+/* ===== Lista de categorias com radio (nó 2484:3198) ===================== */
+.cat-list { display: flex; flex-direction: column; gap: var(--sp-5); }
+.cat-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-5);
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  background: var(--c-white);
+  border: var(--bw-thin) solid var(--c-line);
+  border-radius: var(--r-lg);
+  padding: var(--sp-5) var(--sp-4);
+  font-family: var(--font-sans);
+}
+.cat-item.on { background: var(--c-teal-050); border-color: var(--c-teal-200); }
+/* radio desenhado em CSS — é como o próprio design faz no estado não-marcado */
+.cat-item .radio {
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--c-text-faint);
+  background: transparent;
+}
+.cat-item.on .radio {
+  border-color: var(--c-green-800);
+  background:
+    radial-gradient(circle, var(--c-green-800) 0 5px, transparent 5px);
+}
+.cat-item .info { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-2); min-width: 0; }
+.cat-item .path { font-size: var(--fs-12); font-weight: var(--fw-medium); line-height: var(--lh-snug); color: var(--c-text-muted); }
+.cat-item.on .path { font-weight: var(--fw-bold); color: var(--c-green-800); }
+.cat-item .tag {
+  background: var(--c-surface);
+  color: var(--c-text-faint);
+  border-radius: var(--r-xs);
+  padding: 2px var(--sp-3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-10);
+  font-weight: var(--fw-bold);
+}
+.cat-item.on .tag { background: var(--c-teal-200); color: var(--c-green-800); }
+.cat-item .guess { font-size: var(--fs-10); color: var(--c-text-faint); }
+
 /* ===== card-busca-categoria (nó 2480:3117) ============================== */
 /* Vive DENTRO do card do passo 2, então usa o gradiente interno (mesmo
    tratamento do .lookup-box) — com o gradiente externo do design ele sumiria

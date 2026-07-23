@@ -791,6 +791,10 @@ function Calculator() {
   const [anuncioPrep, setAnuncioPrep] = useState({ loading: false, data: null })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
+  // Campo do card "Não achou a categoria?". Nasce preenchido com a categoria
+  // que o app detectou pelo produto parseado — o usuário só edita se quiser
+  // buscar por uma categoria mais geral.
+  const [buscaCat, setBuscaCat] = useState('')
 
   const upd = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
 
@@ -832,6 +836,10 @@ function Calculator() {
       setCats(list)
       if (list.length) {
         setF((prev) => ({ ...prev, categoryId: list[0].category_id, categoryName: list[0].category_name }))
+      } else {
+        // sem sugestão: zera a categoria em vez de deixar a do produto anterior
+        // pendurada na tela (o campo de busca e o "Categoria escolhida" leem daqui)
+        setF((prev) => ({ ...prev, categoryId: '', categoryName: '' }))
       }
     } catch {
       setCats([])
@@ -839,6 +847,10 @@ function Calculator() {
     }
     setPredicting(false)
   }
+
+  // Sempre que a categoria mudar (por parse do produto ou por escolha nos
+  // chips), o campo de busca acompanha.
+  useEffect(() => { setBuscaCat(f.categoryName || '') }, [f.categoryName])
 
   function pickCat(c) {
     // Mantém os chips na tela (não limpa) — só troca a categoria escolhida.
@@ -1081,6 +1093,8 @@ function Calculator() {
   // produto ativo = o candidato que o usuário confirmou ("é este seu produto?")
   const candidatos = comp?.candidatos || []
   const compAtivo = candidatos[compIdx] || comp
+  // categoria escolhida hoje, pra mostrar o caminho completo na caixa verde
+  const catAtiva = cats.find((c) => c.category_id === f.categoryId) || null
 
   // ao escolher outro candidato: troca a seleção, aplica a categoria dele e
   // re-busca os anúncios/termômetro daquele produto.
@@ -1157,8 +1171,72 @@ function Calculator() {
           <div className="card">
             <h2><span className="n">2</span> Categoria</h2>
 
-            {/* card-busca-categoria (nó 2480:3117) — dentro do container das
-                categorias, logo acima do bloco "É este o seu produto?" */}
+            {/* ── Qual seu produto? + carrossel de candidatos (nó 2484:3143) ── */}
+            {comp && comp.matched && candidatos.length > 0 && (
+              <>
+                <div className="prod-header">
+                  <div className="prod-header-txt">
+                    <p className="t">Qual seu produto?</p>
+                    <p className="d">Escolha qual é o seu produto</p>
+                  </div>
+                  <span className="prod-badge">
+                    {candidatos.length} {candidatos.length === 1 ? 'opção' : 'opções'}
+                  </span>
+                </div>
+                <div className="prod-track">
+                  {candidatos.map((cand, i) => {
+                    const sel = i === compIdx
+                    return (
+                      <div key={cand.catalog_id} className={'prod-card' + (sel ? ' on' : '')}>
+                        {sel && <span className="prod-sel">✓ Selecionado</span>}
+                        <button className="prod-pic" onClick={() => escolherCandidato(i)}>
+                          {cand.thumbnail
+                            ? <img src={cand.thumbnail} alt="" />
+                            : <span className="prod-pic-vazia">sem foto</span>}
+                        </button>
+                        <button className="prod-info" onClick={() => escolherCandidato(i)}>
+                          <span className="nome">{cand.name}</span>
+                          {cand.n_vend ? <span className="lojas">{cand.n_vend} {cand.n_vend === 1 ? 'loja vendendo' : 'lojas vendendo'}</span> : null}
+                          <span className="preco">{money(cand.price)}</span>
+                          {cand.category_name && <span className="cat">{cand.category_name}</span>}
+                        </button>
+                        {cand.url && (
+                          <a className="prod-cta" href={cand.url} target="_blank" rel="noreferrer">
+                            Ver no Mercado Livre ›
+                          </a>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
+            )}
+            {comp && !comp.matched && (
+              <div className="hint">
+                {comp.reason === 'sem_preco'
+                  ? `Achei “${comp.name}” no ML, mas ninguém está vendendo esse item agora.`
+                  : 'Não achei esse produto no Mercado Livre para comparar o preço.'}
+              </div>
+            )}
+
+            {/* ── Id da categoria (nó 2484:3106) ── */}
+            <div className="field">
+              <label>Id da categoria no Mercado Livre</label>
+              <div className="id-field">
+                <img src={iconSearch} alt="" />
+                <input placeholder="MLB1234" value={f.categoryId} onChange={upd('categoryId')} />
+              </div>
+            </div>
+
+            {/* ── Categoria escolhida (nó 2484:3181) ── */}
+            {f.categoryId && (
+              <div className="cat-chosen">
+                <p className="t">✓ {f.categoryName || 'Categoria'} — <span>{f.categoryId}</span></p>
+                {catAtiva?.category_path && <p className="p">{catAtiva.category_path}</p>}
+              </div>
+            )}
+
+            {/* ── card-busca-categoria (nó 2480:3117 / 2484:3184) ── */}
             <div className="cat-search">
               <div className="cat-search-title">
                 <p className="t">Não achou a categoria?</p>
@@ -1170,101 +1248,47 @@ function Calculator() {
                 <div className="cat-search-input">
                   <img src={iconSearch} alt="" />
                   <input
-                    placeholder="Digite a categoria..."
-                    value={f.titulo}
-                    onChange={upd('titulo')}
-                    onKeyDown={(e) => { if (e.key === 'Enter') predict() }}
+                    placeholder="Ex: Eletrônicos, Jardim"
+                    value={buscaCat}
+                    onChange={(e) => setBuscaCat(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') predict(buscaCat) }}
                   />
                 </div>
-                <button className="cat-search-btn" onClick={predict} disabled={predicting}>
+                <button className="cat-search-btn" onClick={() => predict(buscaCat)} disabled={predicting}>
                   {predicting ? '…' : 'Buscar'}
                 </button>
               </div>
             </div>
 
-            <div className="field">
-
-              {comp && (comp.matched ? (
-                <div className="callout" style={{ margin: '10px 0 0' }}>
-                  {candidatos.length > 1 && (
-                    <div style={{ marginBottom: 10 }}>
-                      <div style={{ fontWeight: 700, marginBottom: 6 }}>É este o seu produto?</div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        {candidatos.map((cand, i) => {
-                          const sel = i === compIdx
-                          return (
-                            <button
-                              key={cand.catalog_id}
-                              className={'cat-opt row' + (sel ? ' on' : '')}
-                              onClick={() => escolherCandidato(i)}
-                            >
-                              {cand.thumbnail && <img className="cat-thumb" src={cand.thumbnail} alt="" />}
-                              <span style={{ flex: 1 }}>
-                                {sel ? '✓ ' : ''}<b>{cand.name}</b>
-                                <div className="hint">{money(cand.price)}{cand.n_vend ? ` · ${cand.n_vend} vendendo` : ''}{cand.category_name ? ` · ${cand.category_name}` : ''}</div>
-                              </span>
-                            </button>
-                          )
-                        })}
-                      </div>
-                      <div className="hint" style={{ marginTop: 4 }}>Clique no certo — o preço, a categoria e o mercado abaixo passam a ser dele.</div>
-                    </div>
-                  )}
-                  💰 <b>No Mercado Livre</b> o mais barato hoje é <b>{money(compAtivo.price)}</b>
-                  {compAtivo.n_vend ? ` (${compAtivo.n_vend} loja${compAtivo.n_vend === 1 ? '' : 's'} vendendo)` : ''}.
-                  {compAtivo.url && (
-                    <div style={{ marginTop: 8 }}>
-                      <a className="ghost link" href={compAtivo.url} target="_blank" rel="noreferrer">Ver no ML ▸</a>
-                    </div>
-                  )}
-                  <div className="hint" style={{ marginTop: 6 }}>Produto no ML: {compAtivo.name}</div>
-                  {compAtivo.category_path && (
-                    <div className="hint" style={{ marginTop: 2 }}>Categoria do ML: {compAtivo.category_path}</div>
-                  )}
+            {/* ── Resultados da busca: lista de categorias (nó 2484:3198) ── */}
+            {cats.length > 0 && (
+              <>
+                <div className="res-title">
+                  <p className="t">Resultados da busca</p>
+                  <p className="d">Selecione a categoria mais adequada para o seu produto.</p>
                 </div>
-              ) : (
-                <div className="hint" style={{ marginTop: 8 }}>
-                  {comp.reason === 'sem_preco'
-                    ? `Achei “${comp.name}” no ML, mas ninguém está vendendo esse item agora.`
-                    : 'Não achei esse produto no Mercado Livre para comparar o preço.'}
+                <div className="cat-list">
+                  {cats.map((c) => {
+                    const sel = c.category_id === f.categoryId
+                    return (
+                      <button
+                        key={c.category_id}
+                        type="button"
+                        className={'cat-item' + (sel ? ' on' : '')}
+                        onClick={() => pickCat(c)}
+                      >
+                        <span className="radio" aria-hidden />
+                        <span className="info">
+                          <span className="path">{c.category_path || c.category_name}</span>
+                          <span className="tag">{c.category_id}</span>
+                          {c.source === 'palpite' && <span className="guess">palpite por palavra</span>}
+                        </span>
+                      </button>
+                    )
+                  })}
                 </div>
-              ))}
-
-              {cats.length > 0 && (
-                <div className="hint" style={{ margin: '10px 0 4px' }}>
-                  Sugestões (clique pra escolher a certa):
-                </div>
-              )}
-              {cats.map((c) => {
-                const sel = c.category_id === f.categoryId
-                return (
-                  <button
-                    key={c.category_id}
-                    className={'cat-opt' + (sel ? ' on' : '')}
-                    onClick={() => pickCat(c)}
-                  >
-                    <div>
-                      {sel ? '✓ ' : ''}<b>{c.category_name}</b> — <code>{c.category_id}</code>
-                      {c.source === 'palpite' && (
-                        <span className="hint" style={{ marginLeft: 6 }}>(palpite por palavra)</span>
-                      )}
-                    </div>
-                    {c.category_path && (
-                      <div className="hint" style={{ marginTop: 2 }}>{c.category_path}</div>
-                    )}
-                  </button>
-                )
-              })}
-              <div className="hint">
-                {f.categoryId
-                  ? `Categoria escolhida: ${f.categoryName} (${f.categoryId})`
-                  : 'Ou preencha o id da categoria direto no campo abaixo.'}
-              </div>
-            </div>
-            <div className="field">
-              <label>Id da categoria no Mercado Livre</label>
-              <input placeholder="MLB1234" value={f.categoryId} onChange={upd('categoryId')} />
-            </div>
+              </>
+            )}
             <div className="field">
               <label>Tipo de anúncio</label>
               {/* segmented control (chips-row do design) */}
