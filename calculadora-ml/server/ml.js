@@ -116,6 +116,43 @@ export async function mlGet(pathname) {
   return d
 }
 
+// ---------- Escrita na API (publicação) ----------
+// Publicar/editar EXIGE o token de vendedor: o app token (client_credentials)
+// não pode criar itens. Sem vendedor conectado, falha cedo com 401 pra a UI
+// mostrar o convite de conexão em vez de um erro cru do ML.
+export async function mlSend(method, pathname, body) {
+  const token = await getUserToken()
+  if (!token) throw Object.assign(new Error('vendedor_nao_conectado'), { status: 401 })
+  const r = await fetch(`${API}${pathname}`, {
+    method,
+    headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json', accept: 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  // /items/validate responde 204 sem corpo quando está tudo certo.
+  const d = await r.json().catch(() => ({}))
+  if (!r.ok) throw Object.assign(new Error('ml_error'), { status: r.status, data: d })
+  return d
+}
+export const mlPost = (pathname, body) => mlSend('POST', pathname, body)
+
+// Upload de uma foto: POST /pictures/items/upload (campo "file", multipart).
+// O multipart é montado pelo fetch nativo do Node (FormData/Blob), então não
+// precisamos de nenhuma dependência nem parser próprio. Retorna { id, variations }.
+export async function mlUploadPicture(buffer, filename, mime) {
+  const token = await getUserToken()
+  if (!token) throw Object.assign(new Error('vendedor_nao_conectado'), { status: 401 })
+  const fd = new FormData()
+  fd.append('file', new Blob([buffer], { type: mime || 'image/jpeg' }), filename || 'foto.jpg')
+  const r = await fetch(`${API}/pictures/items/upload`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: fd,
+  })
+  const d = await r.json().catch(() => ({}))
+  if (!r.ok) throw Object.assign(new Error('ml_error'), { status: r.status, data: d })
+  return d
+}
+
 export function authStatus() {
   const u = readUserToken()
   return {
