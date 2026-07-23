@@ -1,4 +1,4 @@
-import { authStatus, getFees, buildAuthUrl, exchangeCode, getCatalogLive, getTendenciaVisitas, mlUploadPicture, getMeusAnuncios } from './ml.js'
+import { authStatus, getFees, buildAuthUrl, exchangeCode, getCatalogLive, getTendenciaVisitas, mlUploadPicture, getMeusAnuncios, acaoAnuncio } from './ml.js'
 import { findCompetitor, suggestCategories, getAnuncioBase, buscarCategorias, getPacoteAnuncio } from './catalog.js'
 import { pesquisarMercado, buscarAnuncios } from './mercado.js'
 import { consultarProdutoErp, consultarPorBarras, erpStatus } from './erp.js'
@@ -153,6 +153,12 @@ export async function handleApi(req, res) {
         limit: Number(url.searchParams.get('limit')) || 50,
         offset: Number(url.searchParams.get('offset')) || 0,
       }))
+      return true
+    }
+    if (path === '/api/anuncio/acao') {
+      if (req.method !== 'POST') { res.statusCode = 405; json(res, { error: 'metodo_invalido' }); return true }
+      const b = await readJson(req)
+      json(res, await acaoAnuncio(b.id, b.acao))
       return true
     }
 

@@ -475,3 +475,38 @@ export async function getMeusAnuncios({ limit = 50, offset = 0 } = {}) {
 
   return { paging, results }
 }
+
+// ===========================================================================
+// Ações no anúncio (escrita — exige token de vendedor, via mlSend):
+//  - pausar:   PUT { status: 'paused' }
+//  - ativar:   PUT { status: 'active' }  (reativa um pausado)
+//  - encerrar: PUT { status: 'closed' } (irreversível — não reativa, só republica)
+//  - excluir:  fecha e depois PUT { deleted: true } (com retry no 409 do ML)
+// ===========================================================================
+export async function acaoAnuncio(id, acao) {
+  const itemId = String(id || '').trim()
+  if (!itemId) throw Object.assign(new Error('faltou_id'), { status: 400 })
+
+  if (acao === 'pausar') return mlSend('PUT', `/items/${itemId}`, { status: 'paused' })
+  if (acao === 'ativar') return mlSend('PUT', `/items/${itemId}`, { status: 'active' })
+  if (acao === 'encerrar') return mlSend('PUT', `/items/${itemId}`, { status: 'closed' })
+
+  if (acao === 'excluir') {
+    // 1) fecha primeiro (se já estiver fechado, o ML pode recusar — seguimos)
+    try { await mlSend('PUT', `/items/${itemId}`, { status: 'closed' }) } catch { /* pode já estar closed */ }
+    // 2) marca como deletado; o ML às vezes devolve 409 (optimistic locking)
+    //    logo após o fechamento — tenta de novo depois de alguns segundos.
+    let ultimo
+    for (let tent = 0; tent < 3; tent++) {
+      try { return await mlSend('PUT', `/items/${itemId}`, { deleted: true }) }
+      catch (e) {
+        ultimo = e
+        if (e.status === 409 && tent < 2) await new Promise((r) => setTimeout(r, 1500))
+        else throw e
+      }
+    }
+    throw ultimo
+  }
+
+  throw Object.assign(new Error('acao_invalida'), { status: 400 })
+}
