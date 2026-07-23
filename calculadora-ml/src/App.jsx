@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   MODALIDADES, MODALIDADE_IDS, getModalidade,
   pesoCobravelKg, pesoVolumetricoKg, checarLimites, compararModalidades,
@@ -114,6 +114,8 @@ export default function App() {
   const [status, setStatus] = useState({ loading: true, ready: false })
   // termo mandado da aba "Em alta" pra aba "Pesquisa de mercado"
   const [buscaMercado, setBuscaMercado] = useState('')
+  // categoria mandada de "Categorias em alta" pra "Em alta"
+  const [categoriaAlta, setCategoriaAlta] = useState('')
 
   useEffect(() => {
     fetch('/api/auth/status')
@@ -129,13 +131,19 @@ export default function App() {
         <button className={view === 'produto' ? 'tab on' : 'tab'} onClick={() => setView('produto')}>Consultar produto</button>
         <button className={view === 'mercado' ? 'tab on' : 'tab'} onClick={() => setView('mercado')}>Pesquisa de mercado</button>
         <button className={view === 'alta' ? 'tab on' : 'tab'} onClick={() => setView('alta')}>Em alta</button>
+        <button className={view === 'categorias' ? 'tab on' : 'tab'} onClick={() => setView('categorias')}>Categorias em alta</button>
         <button className={view === 'vantagens' ? 'tab on' : 'tab'} onClick={() => setView('vantagens')}>Vantagens no ML</button>
       </nav>
 
       {view === 'vantagens' ? (
         <Vantagens />
+      ) : view === 'categorias' ? (
+        <CategoriasAlta onVerProdutos={(catId) => { setCategoriaAlta(catId); setView('alta') }} />
       ) : view === 'alta' ? (
-        <EmAlta onPesquisar={(termo) => { setBuscaMercado(termo); setView('mercado') }} />
+        <EmAlta
+          categoriaInicial={categoriaAlta}
+          onPesquisar={(termo) => { setBuscaMercado(termo); setView('mercado') }}
+        />
       ) : view === 'mercado' ? (
         <Mercado inicial={buscaMercado} />
       ) : view === 'produto' ? (
@@ -515,6 +523,264 @@ function GraficoVisitas({ serie, dias, tom = 'neutro' }) {
   )
 }
 
+// ===========================================================================
+// CATEGORIAS EM ALTA — qual seção do ML está esquentando.
+// ===========================================================================
+// Lê o relatório gerado por `npm run categorias`. Não calcula na hora de
+// propósito: são milhares de chamadas à API, impossível numa abertura de tela.
+const ORDENS = [
+  { id: 'temperatura', label: 'Temperatura', desc: 'oportunidade + crescimento + folga de concorrência' },
+  { id: 'visitas_por_100k_anuncios', label: 'Procura por oferta', desc: 'visitas/dia para cada 100 mil anúncios — o que separa quente de disputado' },
+  { id: 'visitas_dia', label: 'Procura bruta', desc: 'visitas/dia somadas dos mais vendidos' },
+  { id: 'crescimento', label: 'Crescimento', desc: 'quantos do topo estão subindo' },
+  { id: 'folga', label: 'Menos concorrência', desc: 'menor média de vendedores por produto' },
+  { id: 'avaliacoes', label: 'Venda acumulada', desc: 'avaliações somadas dos mais vendidos' },
+]
+
+function CategoriasAlta({ onVerProdutos }) {
+  const [rel, setRel] = useState(null)
+  const [erro, setErro] = useState(null)
+  const [ordem, setOrdem] = useState('temperatura')
+  const [nivel, setNivel] = useState('todos') // todos | secoes | subcategorias
+  const [busca, setBusca] = useState('')
+  const [aberta, setAberta] = useState(null)
+
+  useEffect(() => {
+    fetch('/api/categorias-alta')
+      .then((r) => r.json())
+      .then(setRel)
+      .catch(() => setErro('Não consegui ler o relatório.'))
+  }, [])
+
+  const lista = useMemo(() => {
+    if (!rel?.categorias) return []
+    let l = rel.categorias
+    if (nivel === 'secoes') l = l.filter((c) => c.nivel === 1)
+    if (nivel === 'subcategorias') l = l.filter((c) => c.nivel > 1)
+    const t = busca.trim().toLowerCase()
+    if (t) l = l.filter((c) => (c.path || c.nome).toLowerCase().includes(t))
+    const chave = (c) => {
+      if (ordem === 'crescimento') return c.amostra ? (c.subindo - c.caindo) / c.amostra : -9
+      if (ordem === 'folga') return -(c.vendedores_medio ?? 999)
+      return c[ordem] ?? -1
+    }
+    return [...l].sort((a, b) => chave(b) - chave(a))
+  }, [rel, ordem, nivel, busca])
+
+  if (erro) return <div className="card"><div className="hint">{erro}</div></div>
+  if (!rel) return <p className="spin">Lendo o relatório de categorias…</p>
+
+  if (rel.vazio) {
+    return (
+      <>
+        <div className="eyebrow">Oferta, procura e crescimento por categoria</div>
+        <h1>Categorias em alta</h1>
+        <div className="card connect-box">
+          <div className="big-ic">📊</div>
+          <h2 style={{ justifyContent: 'center' }}>O relatório ainda não foi gerado</h2>
+          <p className="sub" style={{ margin: '0 auto' }}>
+            Esta tela lê um relatório pronto — varrer todas as categorias são milhares de chamadas
+            à API do Mercado Livre, não dá pra fazer na abertura da página. Rode uma vez:
+          </p>
+          <p className="sub" style={{ margin: '12px auto 0' }}><code>{rel.comando}</code></p>
+        </div>
+      </>
+    )
+  }
+
+  const ordemAtiva = ORDENS.find((o) => o.id === ordem)
+  const oportunidades = rel.categorias.filter((c) => c.leitura === 'oportunidade').slice(0, 5)
+
+  return (
+    <>
+      <div className="eyebrow">Oferta, procura e crescimento · {rel.total_analisadas} categorias analisadas</div>
+      <h1>Categorias em alta</h1>
+      <p className="sub">
+        Onde tem <b>muita procura para pouca oferta</b>. Categoria campeã de venda costuma ser campeã de
+        concorrência — por isso a régua principal não é volume, é <b>procura por anúncio existente</b>.
+      </p>
+
+      {oportunidades.length > 0 && (
+        <div className="card">
+          <h2>🎯 As 5 melhores apostas</h2>
+          <div className="hint" style={{ marginBottom: 10 }}>
+            Muita visita por anúncio, crescendo e sem multidão de vendedores.
+          </div>
+          <ol className="cat-top">
+            {oportunidades.map((c) => (
+              <li key={c.id}>
+                <button type="button" onClick={() => setAberta(aberta === c.id ? null : c.id)}>
+                  <span className="n">{c.temperatura}</span>
+                  <span className="txt">
+                    <b>{c.nome}</b>
+                    <span className="p">{c.path}</span>
+                  </span>
+                  <span className="v">{fmtNum(c.visitas_por_100k_anuncios)} <i>vis/dia por 100k anúncios</i></span>
+                </button>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      <div className="card">
+        <h2><span className="n">1</span> Como ordenar</h2>
+        <div className="cat-ordem">
+          {ORDENS.map((o) => (
+            <button key={o.id} type="button" className={ordem === o.id ? 'on' : ''} onClick={() => setOrdem(o.id)}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+        <div className="hint">{ordemAtiva?.desc}</div>
+
+        <div className="row2" style={{ marginTop: 14 }}>
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label className="plain">Nível</label>
+            <select value={nivel} onChange={(e) => setNivel(e.target.value)}>
+              <option value="todos">Tudo ({rel.categorias.length})</option>
+              <option value="secoes">Só as seções ({rel.categorias.filter((c) => c.nivel === 1).length})</option>
+              <option value="subcategorias">Só subcategorias ({rel.categorias.filter((c) => c.nivel > 1).length})</option>
+            </select>
+          </div>
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label className="plain">Procurar categoria</label>
+            <input placeholder="ex: brinquedo" value={busca} onChange={(e) => setBusca(e.target.value)} />
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <h2>📋 {lista.length} categorias <span className="pill">janela {rel.janela_dias} dias</span></h2>
+        <div className="hint" style={{ marginBottom: 12 }}>
+          Procura medida nos {rel.top_por_categoria} mais vendidos de cada categoria — é uma amostra com a
+          mesma régua pra todas, serve pra comparar entre si, não como volume absoluto da categoria inteira.
+        </div>
+
+        <div className="cat-lista">
+          {lista.map((c, i) => (
+            <CategoriaLinha
+              key={c.id}
+              c={c}
+              pos={i + 1}
+              aberta={aberta === c.id}
+              onToggle={() => setAberta(aberta === c.id ? null : c.id)}
+              onVerProdutos={onVerProdutos}
+            />
+          ))}
+        </div>
+      </div>
+
+      {rel.sem_ranking?.length > 0 && (
+        <div className="card">
+          <h2>Sem ranking publicado</h2>
+          <div className="hint">
+            O Mercado Livre não publica lista de mais vendidos para {rel.sem_ranking.length} categorias —
+            elas ficam de fora da comparação. Ex.: {rel.sem_ranking.slice(0, 6).map((c) => c.nome).join(' · ')}
+          </div>
+        </div>
+      )}
+
+      <footer>
+        Oferta vem do total de anúncios que o próprio ML declara na categoria. Procura e crescimento saem das
+        visitas diárias dos produtos do topo do ranking de mais vendidos. Venda acumulada é o total de
+        avaliações desses produtos — só quem compra avalia, então é um piso, nunca o número exato.
+        Para atualizar: <code>npm run categorias</code>
+      </footer>
+    </>
+  )
+}
+
+const fmtNum = (n) => (n == null ? '—' : Number(n).toLocaleString('pt-BR'))
+
+// Uma linha da lista de categorias: resumo sempre visível, detalhe ao clicar.
+function CategoriaLinha({ c, pos, aberta, onToggle, onVerProdutos }) {
+  const tom = c.direcao === 'subindo' ? 'sobe' : c.direcao === 'caindo' ? 'cai' : 'neutro'
+  const barra = c.amostra
+    ? { s: (c.subindo / c.amostra) * 100, e: (c.estavel / c.amostra) * 100, c: (c.caindo / c.amostra) * 100 }
+    : null
+
+  return (
+    <div className={'cat-linha' + (aberta ? ' aberta' : '')}>
+      <button type="button" className="cat-cab" onClick={onToggle}>
+        <span className="pos">{pos}</span>
+        <span className={'temp t' + Math.min(9, Math.floor((c.temperatura || 0) / 10))}>{c.temperatura}</span>
+        <span className="nome">
+          <b>{c.nome}</b>
+          <span className="p">{c.nivel > 1 ? c.path : `${c.filhas} subcategorias`}</span>
+        </span>
+        <span className="nums">
+          <span className="n1">{fmtNum(c.visitas_dia)} <i>vis/dia</i></span>
+          <span className="n2">{fmtNum(c.visitas_por_100k_anuncios)} <i>por 100k</i></span>
+        </span>
+        <span className={'leitura ' + tom}>{c.leitura}</span>
+      </button>
+
+      {aberta && (
+        <div className="cat-det">
+          <div className="cat-grade">
+            <div><span className="k">Anúncios na categoria</span><span className="v">{fmtNum(c.anuncios)}</span></div>
+            <div><span className="k">Visitas/dia (topo)</span><span className="v">{fmtNum(c.visitas_dia)}</span></div>
+            <div><span className="k">Procura por 100k anúncios</span><span className="v destaque">{fmtNum(c.visitas_por_100k_anuncios)}</span></div>
+            <div><span className="k">Avaliações somadas</span><span className="v">{fmtNum(c.avaliacoes)}</span></div>
+            <div><span className="k">Preço mediano</span><span className="v">{c.preco_mediano != null ? money(c.preco_mediano) : '—'}</span></div>
+            <div><span className="k">Vendedores por produto</span><span className="v">{c.vendedores_medio ?? '—'}</span></div>
+            <div><span className="k">Com loja oficial</span><span className="v">{c.oficiais_pct != null ? `${c.oficiais_pct}%` : '—'}</span></div>
+            <div><span className="k">Produtos medidos</span><span className="v">{c.amostra}</span></div>
+          </div>
+
+          {barra && (
+            <div className="cat-barra-bloco">
+              <div className="cat-barra">
+                <span className="s" style={{ width: `${barra.s}%` }} />
+                <span className="e" style={{ width: `${barra.e}%` }} />
+                <span className="c" style={{ width: `${barra.c}%` }} />
+              </div>
+              <div className="hint">
+                Dos {c.amostra} mais vendidos: <b>{c.subindo} subindo</b> · {c.estavel} estáveis ·{' '}
+                <b>{c.caindo} caindo</b>
+                {c.variacao != null && ` — a categoria como um todo ${c.direcao === 'subindo' ? 'subiu' : c.direcao === 'caindo' ? 'caiu' : 'variou'} ${Math.abs(c.variacao)}% na janela.`}
+              </div>
+            </div>
+          )}
+
+          {c.serie?.length > 1 && (
+            <div className="cat-graf">
+              <div className="alta-graf-topo">
+                <span className="t">Visitas somadas do topo · últimos {c.janela_dias} dias</span>
+                {c.variacao != null && (
+                  <span className={'v ' + tom}>
+                    {c.variacao > 0 ? '▲' : c.variacao < 0 ? '▼' : '='} {Math.abs(c.variacao)}%
+                  </span>
+                )}
+              </div>
+              <GraficoVisitas serie={c.serie} dias={c.janela_dias} tom={tom} />
+            </div>
+          )}
+
+          {c.termos?.length > 0 && (
+            <div>
+              <div className="hint" style={{ marginBottom: 6 }}>Mais buscados nesta categoria:</div>
+              <div className="termo-chips">
+                {c.termos.map((t) => <span key={t} className="termo-chip estatico">{t}</span>)}
+              </div>
+            </div>
+          )}
+
+          <div className="cat-acoes">
+            <button type="button" className="alta-btn cheio" onClick={() => onVerProdutos(c.id)}>
+              Ver os produtos desta categoria
+            </button>
+            {c.permalink && (
+              <a className="alta-btn" href={c.permalink} target="_blank" rel="noreferrer">Abrir no ML</a>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Card de um produto do ranking (nó 2515:103 do Figma). Cada card tem a sua
 // própria janela de gráfico: trocar 30/60/90 aqui refaz só a série DESTE
 // produto, sem recarregar a categoria inteira.
@@ -643,7 +909,7 @@ function CardAlta({ it, janelaInicial, onPesquisar }) {
 // O ranking vem de /highlights (mais vendidos da categoria, montado pelo
 // próprio ML) e os termos de /trends. Escolha a categoria FOLHA: na raiz o
 // topo é o campeão de venda do Brasil inteiro, com centenas de vendedores.
-function EmAlta({ onPesquisar }) {
+function EmAlta({ onPesquisar, categoriaInicial = '' }) {
   const [raizes, setRaizes] = useState([])
   const [raiz, setRaiz] = useState('')
   const [filhas, setFilhas] = useState([])
@@ -653,10 +919,38 @@ function EmAlta({ onPesquisar }) {
   const [termosSite, setTermosSite] = useState([])
   const [janela, setJanela] = useState(30) // janela das visitas: 30, 60 ou 90 dias
 
+  const catAberta = useRef('')
+
   useEffect(() => {
     fetch('/api/categorias').then((r) => r.json()).then((d) => setRaizes(d.filhas || [])).catch(() => {})
     fetch('/api/termos-alta').then((r) => r.json()).then((d) => setTermosSite(Array.isArray(d) ? d : [])).catch(() => {})
   }, [])
+
+  // veio de "Categorias em alta": abre direto o ranking daquela categoria e
+  // deixa os dois seletores coerentes com ela
+  useEffect(() => {
+    const alvo = (categoriaInicial || '').trim()
+    if (!alvo || catAberta.current === alvo) return
+    // espera a lista de seções chegar, senão não dá pra descobrir a seção
+    // desta categoria e os dois seletores ficariam vazios
+    if (!raizes.length) return
+    catAberta.current = alvo
+    ;(async () => {
+      try {
+        const info = await fetch('/api/categorias?pai=' + encodeURIComponent(alvo)).then((r) => r.json())
+        // se a categoria tem pai, carrega as irmãs pra o segundo seletor
+        const raizId = info?.path?.split(' > ')?.[0] || null
+        const raizObj = raizes.find((r) => r.name === raizId)
+        if (raizObj) {
+          setRaiz(raizObj.id)
+          const f = await fetch('/api/categorias?pai=' + encodeURIComponent(raizObj.id)).then((r) => r.json())
+          setFilhas(f.filhas || [])
+          setFilha(f.filhas?.some((x) => x.id === alvo) ? alvo : '')
+        }
+      } catch { /* segue e carrega o ranking mesmo assim */ }
+      carregar(alvo)
+    })()
+  }, [categoriaInicial, raizes])
 
   async function escolherRaiz(id) {
     setRaiz(id); setFilha(''); setFilhas([]); setDados(null)

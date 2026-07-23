@@ -45,7 +45,7 @@ const attr = (lista, id) => {
 // uma falha passageira, entao insistimos com espera crescente. 403 e 404 sao
 // definitivos: nao adianta repetir.
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms))
-async function api(rota, tentativas = 4) {
+export async function api(rota, tentativas = 4) {
   for (let i = 0; i < tentativas; i++) {
     try {
       return await mlGet(rota)
@@ -81,7 +81,7 @@ const JANELAS = [30, 60, 90]
 const JANELA_PADRAO = 30
 const validarJanela = (d) => (JANELAS.includes(Number(d)) ? Number(d) : JANELA_PADRAO)
 
-async function avaliacoes(itemId) {
+export async function avaliacoes(itemId) {
   if (!itemId) return null
   try {
     const r = await api(`/reviews/item/${itemId}?limit=1`)

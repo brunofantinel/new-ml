@@ -3,6 +3,7 @@ import { findCompetitor, suggestCategories, getAnuncioBase, buscarCategorias, ge
 import { pesquisarMercado, buscarAnuncios } from './mercado.js'
 import { consultarProdutoErp, consultarPorBarras, erpStatus } from './erp.js'
 import { getEmAlta, categoriasRaiz, categoriasFilhas, termosDoSite, demanda } from './alta.js'
+import { lerRelatorio, analisarCategoria, pontuar } from './categorias.js'
 
 // Handler compartilhado das rotas /api/* e /callback.
 // Usado tanto pelo dev-server do Vite (vite-plugin-api.js) quanto pelo
@@ -49,6 +50,28 @@ export async function handleApi(req, res) {
       return true
     }
     if (path === '/api/termos-alta') { json(res, await termosDoSite()); return true }
+    // relatório de categorias (gerado pelo job scripts/categorias-alta.mjs)
+    if (path === '/api/categorias-alta') {
+      const r = lerRelatorio()
+      if (!r) {
+        json(res, { vazio: true, comando: 'npm run categorias' })
+      } else {
+        json(res, r)
+      }
+      return true
+    }
+    // recalcula UMA categoria na hora (botão "atualizar" da tela)
+    if (path === '/api/categoria-agora') {
+      const id = (url.searchParams.get('id') || '').trim()
+      if (!id) { res.statusCode = 400; json(res, { erro: 'faltou id' }); return true }
+      const c = await analisarCategoria(id, {
+        dias: Number(url.searchParams.get('dias')) || 30,
+        top: Number(url.searchParams.get('top')) || 12,
+      })
+      const ref = { maxPorOferta: Number(url.searchParams.get('ref')) || 1 }
+      json(res, c ? pontuar(c, ref) : { erro: 'nao_analisada' })
+      return true
+    }
     // série diária de visitas de UM produto — usado quando a pessoa troca a
     // janela do gráfico dentro do card, sem recarregar a categoria inteira
     if (path === '/api/serie-visitas') {

@@ -11,3 +11,6 @@ dist/
 
 # fotos diarias do ranking "Em alta" (dados gerados)
 dados/
+
+# cache local do job de categorias
+.cache-categorias.json

@@ -9,7 +9,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "node server/server.js",
-    "batch": "node scripts/batch.js"
+    "batch": "node scripts/batch.js",
+    "categorias": "node scripts/categorias-alta.mjs",
+    "mapa-calor": "node scripts/mapa-calor.mjs"
   },
   "dependencies": {
     "@zxing/browser": "^0.2.1",
