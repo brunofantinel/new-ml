@@ -65,7 +65,17 @@ export function faixaPreco(preco) {
 // depende de endereço, cobertura, categoria, dimensões e da configuração
 // logística efetivamente liberada pelo ML. Por isso nada aqui é marcado
 // sozinho — a modalidade é sempre uma escolha do usuário.
+// A ORDEM das chaves aqui é a ordem do select na tela — Correios primeiro,
+// porque é a modalidade padrão da loja.
 export const MODALIDADES = {
+  drop_off: {
+    id: 'drop_off',
+    label: 'Correios',
+    modelo: 'tradicional',
+    limites: { pesoKg: 30, somaCm: 200, maiorLadoCm: 100 },
+    despacho: 'O ML gera a etiqueta e diz onde postar. Nos Correios você não paga PAC/Sedex no balcão — o frete é administrado pelo Mercado Envios.',
+    notas: ['Envio particular feito por fora não é reembolsado pelo Mercado Livre.'],
+  },
   cross_docking: {
     id: 'cross_docking',
     label: 'Coleta',
@@ -75,19 +85,11 @@ export const MODALIDADES = {
   },
   xd_drop_off: {
     id: 'xd_drop_off',
-    label: 'Agência (Places)',
+    label: 'Credenciado',
     modelo: 'tradicional',
     limites: { pesoKg: 50, somaCm: 300, maiorLadoCm: 200 },
-    despacho: 'Você leva o pacote até uma Agência Mercado Livre (comércio parceiro, não é Correios). A etiqueta diz onde e até que horas entregar.',
-    notas: ['Operando por Agência, pode ser exigida a emissão e anexação da nota fiscal.', 'Etiqueta de Agência não pode ser levada aos Correios.'],
-  },
-  drop_off: {
-    id: 'drop_off',
-    label: 'Correios / Drop off',
-    modelo: 'tradicional',
-    limites: { pesoKg: 30, somaCm: 200, maiorLadoCm: 100 },
-    despacho: 'O ML gera a etiqueta e diz onde postar. Nos Correios você não paga PAC/Sedex no balcão — o frete é administrado pelo Mercado Envios.',
-    notas: ['Envio particular feito por fora não é reembolsado pelo Mercado Livre.'],
+    despacho: 'Você leva o pacote até um ponto credenciado do Mercado Livre (comércio parceiro, não é Correios). A etiqueta diz onde e até que horas entregar.',
+    notas: ['Operando por ponto credenciado, pode ser exigida a emissão e anexação da nota fiscal.', 'Etiqueta de credenciado não pode ser levada aos Correios.'],
   },
   fulfillment: {
     id: 'fulfillment',
@@ -109,7 +111,7 @@ export const MODALIDADES = {
 }
 
 export const MODALIDADE_IDS = Object.keys(MODALIDADES)
-export const getModalidade = (logisticType) => MODALIDADES[logisticType] || MODALIDADES.cross_docking
+export const getModalidade = (logisticType) => MODALIDADES[logisticType] || MODALIDADES.drop_off
 
 // ---------------------------------------------------------------------------
 // Peso e medidas
@@ -256,8 +258,8 @@ export function estimarFreteDetalhado(preco, pesoRealKg, logisticType, ofereceFr
     }
     avisos.push('Full não é custo zero: armazenagem, operação e estoque antigo entram na sua margem e não estão na tabela de frete.')
   } else {
-    // Tradicional — Coleta, Agência (Places) e Correios/Drop off usam a mesma
-    // regra financeira; o que muda é o local de despacho e os limites.
+    // Tradicional — Correios, Coleta e Credenciado usam a mesma regra
+    // financeira; o que muda é o local de despacho e os limites.
     if (faixa === 'abaixo_19') {
       custoFrete = ofereceFreteGratis ? tarifaComDesconto : 0
       regra = ofereceFreteGratis

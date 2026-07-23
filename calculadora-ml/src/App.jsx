@@ -7,9 +7,21 @@ import {
 const money = (v) =>
   'R$ ' + (v < 0 ? '-' : '') + Math.abs(v ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
+// Cada tipo de anúncio muda o parcelamento e a exposição — é o que a
+// exposicao-info-table mostra logo abaixo do seletor.
 const LISTING_TYPES = [
-  { id: 'gold_special', label: 'Clássico' },
-  { id: 'gold_pro', label: 'Premium' },
+  {
+    id: 'gold_special',
+    label: 'Clássico',
+    parcelamento: 'Com juros para o comprador',
+    exposicao: 'Exposição média',
+  },
+  {
+    id: 'gold_pro',
+    label: 'Premium',
+    parcelamento: 'Sem juros para o comprador',
+    exposicao: 'Alta exposição',
+  },
 ]
 
 // As modalidades (limites de peso/medidas e regra de custo) vivem em
@@ -754,7 +766,7 @@ function Calculator() {
     codigo: '',
     barras: '',
     listingType: 'gold_special',
-    logisticType: 'cross_docking',
+    logisticType: 'drop_off', // padrão da loja: Correios
     alt: '', larg: '', comp: '',
     pesoKg: '0.3',
     freteGratis: true,
@@ -1251,6 +1263,35 @@ function Calculator() {
                 ))}
               </div>
             </div>
+
+            {/* exposicao-info-table: o que o tipo de anúncio escolhido significa.
+                A tarifa só aparece depois do cálculo — ela vem da categoria. */}
+            {(() => {
+              const lt = LISTING_TYPES.find((t) => t.id === f.listingType)
+              // só mostra a tarifa se o cálculo na tela for DESTE tipo de anúncio —
+              // trocar de Clássico pra Premium invalida o número anterior
+              const temTarifa = res && res.percentage_fee != null && res.listing_type === f.listingType
+              return (
+                <div className="info-table">
+                  <div className="info-row">
+                    <span className="k">Tarifa sobre a venda:</span>
+                    <span className="v mono">
+                      {temTarifa
+                        ? `${res.percentage_fee}%${res.fixed_fee > 0 ? ` + ${money(res.fixed_fee)}` : ''}`
+                        : '— calcule pra ver'}
+                    </span>
+                  </div>
+                  <div className="info-row">
+                    <span className="k">Parcelamento:</span>
+                    <span className="v plain">{lt?.parcelamento}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="k">Exposição:</span>
+                    <span className="v accent">{lt?.exposicao}</span>
+                  </div>
+                </div>
+              )
+            })()}
           </div>
 
           <div className="card">
