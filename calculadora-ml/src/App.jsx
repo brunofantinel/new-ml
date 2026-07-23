@@ -28,6 +28,14 @@ const REPUTACOES = [
 
 const pct = (v) => (v == null ? '—' : (v < 0 ? '-' : '') + Math.abs(v * 100).toFixed(1) + '%')
 
+// ---- Publicar anúncio ----
+const CONDICOES = [{ id: 'new', label: 'Novo' }, { id: 'used', label: 'Usado' }]
+const WARRANTY_TYPES = ['Garantia do vendedor', 'Garantia de fábrica', 'Sem garantia']
+// Palavras/termos que o ML não permite no título (viram infração ou reprovam a
+// publicação). Bloqueamos no cliente pra o usuário corrigir antes de validar.
+const TITULO_PROIBIDO = /frete\s*gr[áa]tis|oferta|promo[çc]|imperd[íi]vel|liquida|desconto|barat|melhor\s*pre[çc]o|whats\s*app|https?:\/\/|www\./i
+const TITULO_MAX = 60
+
 // Nível de reputação do vendedor no Mercado Livre (termômetro verde→vermelho).
 const NIVEL = {
   '5_green': { txt: 'Excelente', cor: '#00a650' },
@@ -101,11 +109,14 @@ export default function App() {
         <button className={view === 'calc' ? 'tab on' : 'tab'} onClick={() => setView('calc')}>Calculadora</button>
         <button className={view === 'produto' ? 'tab on' : 'tab'} onClick={() => setView('produto')}>Consultar produto</button>
         <button className={view === 'mercado' ? 'tab on' : 'tab'} onClick={() => setView('mercado')}>Pesquisa de mercado</button>
+        <button className={view === 'publicar' ? 'tab on' : 'tab'} onClick={() => setView('publicar')}>Publicar anúncio</button>
         <button className={view === 'vantagens' ? 'tab on' : 'tab'} onClick={() => setView('vantagens')}>Vantagens no ML</button>
       </nav>
 
       {view === 'vantagens' ? (
         <Vantagens />
+      ) : view === 'publicar' ? (
+        <Publicar status={status} />
       ) : view === 'mercado' ? (
         <Mercado />
       ) : view === 'produto' ? (
@@ -1304,5 +1315,603 @@ function Calculator() {
         destino e as promoções de frete do momento.
       </footer>
     </>
+  )
+}
+
+// ===========================================================================
+// Publicar anúncio — assistente em 4 passos que cria o anúncio pela API do ML
+// a partir de um produto do catálogo, seguindo as boas práticas de qualidade.
+// ===========================================================================
+function Publicar({ status }) {
+  const [passo, setPasso] = useState(1)
+  // passo 1 — busca
+  const [q, setQ] = useState('')
+  const [resultados, setResultados] = useState(null)
+  const [buscando, setBuscando] = useState(false)
+  const [carregando, setCarregando] = useState(false)
+  // núcleo do anúncio (editável)
+  const [anuncio, setAnuncio] = useState(null)
+  const [urlFoto, setUrlFoto] = useState('')
+  const [subindo, setSubindo] = useState(false)
+  // passo 3
+  const [fees, setFees] = useState(null)
+  const [feesBusy, setFeesBusy] = useState(false)
+  // validação / publicação
+  const [validacao, setValidacao] = useState(null)
+  const [validando, setValidando] = useState(false)
+  const [publicando, setPublicando] = useState(false)
+  const [resultado, setResultado] = useState(null)
+  const [erro, setErro] = useState('')
+
+  // Gate: publicar exige conta de vendedor conectada (o app token não publica).
+  if (status && !status.seller_connected) {
+    return (
+      <>
+        <div className="eyebrow">Publicação · API oficial do Mercado Livre</div>
+        <h1>Publicar anúncio no Mercado Livre</h1>
+        <p className="sub">
+          Crie um anúncio já no padrão do Mercado Livre: dados vindos do catálogo, ficha técnica completa, fotos,
+          garantia e descrição — com validação antes de publicar.
+        </p>
+        <div className="card connect-box">
+          <div className="big-ic">🔑</div>
+          <h2 style={{ justifyContent: 'center' }}>Conecte sua conta de vendedor</h2>
+          <p className="sub" style={{ margin: '0 auto 16px' }}>
+            Para publicar, o Mercado Livre precisa de uma conexão com permissão de escrita na sua conta.
+          </p>
+          <a className="primary" href="/api/auth/login" style={{ display: 'inline-block', width: 'auto', textDecoration: 'none' }}>
+            Conectar minha conta
+          </a>
+        </div>
+      </>
+    )
+  }
+
+  function mapErroConexao(r) {
+    if (r.error === 'vendedor_nao_conectado') return 'Conecte sua conta de vendedor para publicar.'
+    const s = r.status || r.detail?.status
+    if (s === 403 || /forbidden/i.test(r.error || '')) {
+      return 'O token da conexão não tem permissão de escrita. Reconecte habilitando a publicação (write) no seu aplicativo do Mercado Livre.'
+    }
+    return r.detail?.message || r.error || 'Não consegui completar a operação agora.'
+  }
+
+  async function buscar() {
+    const termo = q.trim()
+    if (!termo) return
+    setBuscando(true); setResultados(null); setErro('')
+    try {
+      const d = await fetch('/api/publicar/busca?q=' + encodeURIComponent(termo)).then((r) => r.json())
+      setResultados(d.results || [])
+    } catch {
+      setErro('Não consegui buscar no catálogo agora. Tente de novo.')
+    }
+    setBuscando(false)
+  }
+
+  async function escolher(prod) {
+    setCarregando(true); setErro('')
+    try {
+      const d = await fetch('/api/publicar/prefill?catalog_id=' + encodeURIComponent(prod.id)).then((r) => r.json())
+      if (d.error) throw new Error(d.error)
+      setAnuncio({
+        catalog_id: d.catalog_id,
+        catalog_listing: true,
+        title: d.title || '',
+        category_id: d.category_id || '',
+        category_path: d.category_path || '',
+        domain_id: d.domain_id || '',
+        condition: d.suggested_condition || 'new',
+        pictures: Array.isArray(d.pictures) ? d.pictures.slice(0, 10) : [],
+        attributes: d.attributes || {},
+        category_attributes: d.category_attributes || [],
+        description: '',
+        warranty_type: 'Garantia do vendedor',
+        warranty_dias: '90',
+        price: '',
+        quantity: '1',
+        listing_type_id: 'gold_special',
+        logistic_type: 'cross_docking',
+        free_shipping: true,
+      })
+      setFees(null); setValidacao(null); setResultado(null)
+      setPasso(2)
+    } catch {
+      setErro('Não consegui carregar esse produto do catálogo. Tente outro.')
+    }
+    setCarregando(false)
+  }
+
+  const set = (k, v) => setAnuncio((a) => ({ ...a, [k]: v }))
+  const setAttr = (id, v) => setAnuncio((a) => ({ ...a, attributes: { ...a.attributes, [id]: v } }))
+
+  function addUrlFoto() {
+    const u = urlFoto.trim()
+    if (!u) return
+    setAnuncio((a) => ({ ...a, pictures: [...a.pictures, { source: u, url: u }].slice(0, 10) }))
+    setUrlFoto('')
+  }
+  function removerFoto(i) {
+    setAnuncio((a) => ({ ...a, pictures: a.pictures.filter((_, k) => k !== i) }))
+  }
+  function moverFoto(i, dir) {
+    setAnuncio((a) => {
+      const p = [...a.pictures]
+      const j = i + dir
+      if (j < 0 || j >= p.length) return a
+      const tmp = p[i]; p[i] = p[j]; p[j] = tmp
+      return { ...a, pictures: p }
+    })
+  }
+  async function subirFotos(fileList) {
+    const files = Array.from(fileList || [])
+    if (!files.length) return
+    setSubindo(true)
+    const novos = []
+    for (const file of files) {
+      try {
+        const r = await fetch('/api/publicar/foto', {
+          method: 'POST',
+          headers: { 'content-type': file.type || 'image/jpeg', 'x-filename': encodeURIComponent(file.name) },
+          body: file,
+        }).then((res) => res.json())
+        if (r.id) novos.push({ id: r.id, url: r.url })
+        else if (r.error) setErro(mapErroConexao(r))
+      } catch { /* pula a foto que falhar */ }
+    }
+    setAnuncio((a) => ({ ...a, pictures: [...a.pictures, ...novos].slice(0, 10) }))
+    setSubindo(false)
+  }
+
+  async function carregarFees() {
+    if (!(Number(anuncio.price) > 0)) return
+    setFeesBusy(true)
+    try {
+      const qs = new URLSearchParams({
+        price: String(anuncio.price),
+        category_id: anuncio.category_id || '',
+        logistic_type: anuncio.logistic_type || 'cross_docking',
+      })
+      const d = await fetch('/api/publicar/fees?' + qs.toString()).then((r) => r.json())
+      setFees(d)
+    } catch { /* mostra sem tarifas */ }
+    setFeesBusy(false)
+  }
+
+  function payload() {
+    return {
+      catalog_id: anuncio.catalog_id,
+      catalog_listing: anuncio.catalog_listing,
+      title: anuncio.title,
+      category_id: anuncio.category_id,
+      price: anuncio.price,
+      quantity: anuncio.quantity,
+      listing_type_id: anuncio.listing_type_id,
+      condition: anuncio.condition,
+      pictures: anuncio.pictures,
+      attributes: anuncio.attributes,
+      warranty: { type_name: anuncio.warranty_type, time: anuncio.warranty_dias },
+      description: anuncio.description,
+      free_shipping: anuncio.free_shipping,
+      logistic_type: anuncio.logistic_type,
+    }
+  }
+
+  async function validar() {
+    setValidando(true); setValidacao(null); setErro('')
+    try {
+      const r = await fetch('/api/publicar/validar', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload()),
+      }).then((res) => res.json())
+      if (r.error) setErro(mapErroConexao(r))
+      else setValidacao(r)
+    } catch {
+      setErro('Não consegui validar agora. Tente de novo.')
+    }
+    setValidando(false)
+  }
+
+  async function publicar() {
+    setPublicando(true); setErro('')
+    try {
+      const r = await fetch('/api/publicar/publicar', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload()),
+      }).then((res) => res.json())
+      if (r.error) setErro(mapErroConexao(r))
+      else { setResultado(r); setPasso(4) }
+    } catch {
+      setErro('Não consegui publicar agora. Tente de novo.')
+    }
+    setPublicando(false)
+  }
+
+  // ---- checklist de boas práticas (calculado a cada render) ----
+  const reqAttrs = (anuncio?.category_attributes || []).filter((a) => a.required)
+  const reqOk = reqAttrs.filter((a) => String(anuncio?.attributes?.[a.id] ?? '').trim())
+  const temGtin = (anuncio?.category_attributes || []).some((a) => a.id === 'GTIN' || a.id === 'EAN')
+  const gtinId = (anuncio?.category_attributes || []).find((a) => a.id === 'GTIN' || a.id === 'EAN')?.id
+  const check = anuncio && {
+    titulo: !!anuncio.title.trim() && anuncio.title.length <= TITULO_MAX && !TITULO_PROIBIDO.test(anuncio.title),
+    fotos: anuncio.pictures.length >= 1,
+    fotosIdeal: anuncio.pictures.length >= 6,
+    ficha: reqAttrs.length === 0 || reqOk.length === reqAttrs.length,
+    garantia: !!anuncio.warranty_type && (anuncio.warranty_type === 'Sem garantia' || Number(anuncio.warranty_dias) > 0),
+    descricao: anuncio.description.trim().length >= 200,
+    gtin: !temGtin || !!String(anuncio.attributes?.[gtinId] ?? '').trim(),
+    preco: Number(anuncio.price) > 0,
+    quantidade: Number(anuncio.quantity) > 0,
+    categoria: !!anuncio.category_id,
+  }
+  const podePublicar = check && check.titulo && check.fotos && check.ficha && check.preco &&
+    check.quantidade && check.categoria && validacao?.ok
+
+  const tituloProibido = anuncio && TITULO_PROIBIDO.test(anuncio.title)
+
+  return (
+    <>
+      <div className="eyebrow">Publicação · API oficial do Mercado Livre</div>
+      <h1>Publicar anúncio no Mercado Livre</h1>
+      <p className="sub">
+        Monte o anúncio no padrão do Mercado Livre: dados do catálogo, ficha técnica completa, fotos, garantia e
+        descrição. Você <b>valida</b> (sem publicar) e só publica quando estiver tudo certo.
+      </p>
+
+      <div className="pub-steps">
+        {['1 · Produto', '2 · Revisão', '3 · Preço e tipo', '4 · Publicado'].map((t, i) => (
+          <span key={i} className={'pub-step' + (passo === i + 1 ? ' on' : '') + (passo > i + 1 ? ' done' : '')}>{t}</span>
+        ))}
+      </div>
+
+      {erro && <div className="callout bad"><b>Erro:</b> {erro}</div>}
+
+      {/* ---------- PASSO 1: buscar produto no catálogo ---------- */}
+      {passo === 1 && (
+        <div className="card">
+          <h2><span className="n">1</span> Ache o produto no catálogo do Mercado Livre</h2>
+          <p className="hint" style={{ marginBottom: 10 }}>
+            Buscar no catálogo garante que título, fotos e ficha técnica já venham no padrão do ML — a base de um anúncio
+            de qualidade. Digite marca + modelo pra achar o produto certo.
+          </p>
+          <div className="row-inline">
+            <div className="field" style={{ flex: 1 }}>
+              <input
+                placeholder="ex: fone jbl tune 510, echo dot 5a geração"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') buscar() }}
+              />
+            </div>
+            <button className="primary" onClick={buscar} disabled={buscando}>
+              {buscando ? 'Buscando…' : 'Buscar no catálogo'}
+            </button>
+          </div>
+
+          {resultados && resultados.length === 0 && (
+            <div className="hint" style={{ marginTop: 12 }}>
+              Não achei esse produto no catálogo do Mercado Livre. Tente o nome específico (marca + modelo).
+            </div>
+          )}
+          {resultados && resultados.length > 0 && (
+            <div className="pub-catlist">
+              {resultados.map((p) => (
+                <button key={p.id} className="pub-catopt" onClick={() => escolher(p)} disabled={carregando}>
+                  {p.thumbnail
+                    ? <img src={p.thumbnail} alt="" className="mkt-thumb" />
+                    : <div className="mkt-thumb" style={{ display: 'grid', placeItems: 'center', color: 'var(--soft)' }}>—</div>}
+                  <div style={{ flex: 1, textAlign: 'left' }}>
+                    <div className="mkt-name" style={{ fontSize: 14 }}>{p.name}</div>
+                    <div className="hint"><code>{p.id}</code>{p.domain_id ? ` · ${p.domain_id}` : ''}</div>
+                  </div>
+                  <span className="ghost" style={{ pointerEvents: 'none' }}>{carregando ? '…' : 'Usar este ▸'}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ---------- PASSOS 2 e 3: revisão + preço, com checklist lateral ---------- */}
+      {anuncio && (passo === 2 || passo === 3) && (
+        <div className="grid">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {passo === 2 && (
+              <>
+                <div className="card">
+                  <h2><span className="n">2</span> Título e categoria</h2>
+                  {anuncio.catalog_listing && (
+                    <div className="callout" style={{ margin: '0 0 12px' }}>
+                      ✅ <b>Vinculado ao catálogo</b> — o Mercado Livre usa o título e as fotos padronizados do produto.
+                      As edições abaixo valem quando você desligar o catálogo (anúncio fora do catálogo).
+                    </div>
+                  )}
+                  <div className="field">
+                    <label>Título ({anuncio.title.length}/{TITULO_MAX})</label>
+                    <input value={anuncio.title} maxLength={80} onChange={(e) => set('title', e.target.value)} />
+                    <div className="hint">Boa prática: <b>Produto + Marca + Modelo + specs</b>. Sem "frete grátis", "oferta", "promoção" ou links.</div>
+                    {tituloProibido && <div className="callout bad" style={{ marginTop: 8 }}>O título tem uma palavra que o Mercado Livre não permite. Remova-a antes de publicar.</div>}
+                  </div>
+                  <div className="field">
+                    <label>Categoria</label>
+                    <input value={anuncio.category_id} onChange={(e) => set('category_id', e.target.value)} />
+                    {anuncio.category_path && <div className="hint">{anuncio.category_path}</div>}
+                  </div>
+                  <label className="check">
+                    <input type="checkbox" checked={anuncio.catalog_listing} onChange={(e) => set('catalog_listing', e.target.checked)} />
+                    Anunciar no catálogo do Mercado Livre (recomendado)
+                  </label>
+                </div>
+
+                <div className="card">
+                  <h2><span className="n">📷</span> Fotos ({anuncio.pictures.length}/10)</h2>
+                  <p className="hint" style={{ marginBottom: 10 }}>
+                    A 1ª foto é a capa — use fundo branco. O ideal são pelo menos 6 fotos, com boa resolução (≥1200px).
+                  </p>
+                  {anuncio.pictures.length > 0 && (
+                    <div className="fotos-grid">
+                      {anuncio.pictures.map((p, i) => (
+                        <div className="foto" key={i}>
+                          <img src={p.url || p.source} alt="" />
+                          {i === 0 && <span className="foto-capa">capa</span>}
+                          <div className="foto-acts">
+                            <button className="ghost" onClick={() => moverFoto(i, -1)} disabled={i === 0} title="mover pra esquerda">◀</button>
+                            <button className="ghost" onClick={() => moverFoto(i, 1)} disabled={i === anuncio.pictures.length - 1} title="mover pra direita">▶</button>
+                            <button className="ghost" onClick={() => removerFoto(i)} title="remover">✕</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="row-inline" style={{ marginTop: 12 }}>
+                    <div className="field" style={{ flex: 1 }}>
+                      <input placeholder="colar URL de uma imagem" value={urlFoto}
+                        onChange={(e) => setUrlFoto(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') addUrlFoto() }} />
+                    </div>
+                    <button className="ghost" onClick={addUrlFoto}>Adicionar URL</button>
+                  </div>
+                  <label className="pub-upload">
+                    <input type="file" accept="image/*" multiple style={{ display: 'none' }}
+                      onChange={(e) => { subirFotos(e.target.files); e.target.value = '' }} />
+                    {subindo ? 'Enviando…' : '📤 Enviar fotos do computador'}
+                  </label>
+                </div>
+
+                <div className="card">
+                  <h2><span className="n">📋</span> Ficha técnica {reqAttrs.length > 0 && <span className="pill">{reqOk.length}/{reqAttrs.length} obrigatórios</span>}</h2>
+                  <p className="hint" style={{ marginBottom: 10 }}>
+                    Quanto mais completa a ficha, melhor o anúncio aparece nas buscas. Os campos marcados são obrigatórios.
+                  </p>
+                  {(anuncio.category_attributes || []).length === 0 && (
+                    <div className="hint">Sem atributos de ficha técnica para esta categoria.</div>
+                  )}
+                  {(anuncio.category_attributes || []).map((a) => {
+                    const val = anuncio.attributes[a.id] ?? ''
+                    const usarSelect = a.values.length > 0 && !a.allow_custom_value
+                    return (
+                      <div className="field" key={a.id}>
+                        <label>{a.name}{a.required && <span style={{ color: 'var(--bad)' }}> *</span>}</label>
+                        {usarSelect ? (
+                          <select value={val} onChange={(e) => setAttr(a.id, e.target.value)}>
+                            <option value="">— escolher —</option>
+                            {a.values.map((v) => <option key={v.id || v.name} value={v.name}>{v.name}</option>)}
+                          </select>
+                        ) : (
+                          <input value={val} list={a.values.length ? `dl-${a.id}` : undefined}
+                            placeholder={a.hint || ''} onChange={(e) => setAttr(a.id, e.target.value)} />
+                        )}
+                        {!usarSelect && a.values.length > 0 && (
+                          <datalist id={`dl-${a.id}`}>{a.values.map((v) => <option key={v.id || v.name} value={v.name} />)}</datalist>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+
+                <div className="card">
+                  <h2><span className="n">🛡️</span> Condição, garantia e descrição</h2>
+                  <div className="row2">
+                    <div className="field">
+                      <label>Condição</label>
+                      <select value={anuncio.condition} onChange={(e) => set('condition', e.target.value)}>
+                        {CONDICOES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+                      </select>
+                    </div>
+                    <div className="field">
+                      <label>Tipo de garantia</label>
+                      <select value={anuncio.warranty_type} onChange={(e) => set('warranty_type', e.target.value)}>
+                        {WARRANTY_TYPES.map((w) => <option key={w} value={w}>{w}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  {anuncio.warranty_type !== 'Sem garantia' && (
+                    <div className="field">
+                      <label>Garantia (dias)</label>
+                      <input type="number" value={anuncio.warranty_dias} onChange={(e) => set('warranty_dias', e.target.value)} />
+                    </div>
+                  )}
+                  <div className="field" style={{ marginBottom: 0 }}>
+                    <label>Descrição (texto puro — o ML não aceita HTML)</label>
+                    <textarea rows={6} value={anuncio.description} onChange={(e) => set('description', e.target.value)}
+                      placeholder="Descreva o produto: características, o que acompanha, diferenciais…"
+                      style={{ width: '100%', fontFamily: 'inherit', fontSize: 14.5, padding: '10px 11px', borderRadius: 9, border: '1px solid var(--line)', background: 'var(--paper)', color: 'var(--ink)', resize: 'vertical' }} />
+                    <div className="hint">{anuncio.description.trim().length} caracteres · recomendado ≥ 200.</div>
+                  </div>
+                </div>
+
+                <button className="primary" onClick={() => { setPasso(3); carregarFees() }}>
+                  Continuar para preço e tipo ▸
+                </button>
+              </>
+            )}
+
+            {passo === 3 && (
+              <>
+                <div className="card">
+                  <h2><span className="n">3</span> Preço, quantidade e envio</h2>
+                  <div className="row2">
+                    <div className="field">
+                      <label>Preço (R$)</label>
+                      <input type="number" step="0.01" value={anuncio.price}
+                        onChange={(e) => set('price', e.target.value)} onBlur={carregarFees} />
+                    </div>
+                    <div className="field">
+                      <label>Quantidade em estoque</label>
+                      <input type="number" value={anuncio.quantity} onChange={(e) => set('quantity', e.target.value)} />
+                    </div>
+                  </div>
+                  <div className="field">
+                    <label>Como você despacha</label>
+                    <select value={anuncio.logistic_type} onChange={(e) => { set('logistic_type', e.target.value); }}>
+                      {LOGISTIC_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                    </select>
+                  </div>
+                  <label className="check">
+                    <input type="checkbox" checked={anuncio.free_shipping} onChange={(e) => set('free_shipping', e.target.checked)} />
+                    Oferecer frete grátis
+                  </label>
+                </div>
+
+                <div className="card">
+                  <h2><span className="n">🏷️</span> Tipo de anúncio</h2>
+                  <p className="hint" style={{ marginBottom: 10 }}>
+                    O <b>Clássico</b> tem comissão menor; o <b>Premium</b> custa mais mas dá parcelamento sem juros e mais exposição.
+                    {' '}<button className="ghost" onClick={carregarFees} disabled={feesBusy || !(Number(anuncio.price) > 0)} style={{ marginLeft: 6 }}>
+                      {feesBusy ? 'Calculando…' : 'Comparar tarifas'}
+                    </button>
+                  </p>
+                  <div className="pub-tipos">
+                    {LISTING_TYPES.map((t) => {
+                      const f = fees?.[t.id]
+                      const sel = anuncio.listing_type_id === t.id
+                      const preco = Number(anuncio.price) || 0
+                      const comissao = f?.commission_total
+                      const frete = f?.freight
+                      const sobra = (comissao != null && preco > 0) ? preco - comissao - (frete || 0) - imposto(preco) : null
+                      return (
+                        <button key={t.id} className={'pub-tipo' + (sel ? ' on' : '')} onClick={() => set('listing_type_id', t.id)}>
+                          <div className="pub-tipo-h">{sel ? '✓ ' : ''}{t.label}</div>
+                          {f?.error ? (
+                            <div className="hint">tarifa indisponível</div>
+                          ) : f ? (
+                            <div className="pub-tipo-b">
+                              <div className="brow"><span className="k">Comissão</span><span className="v">{comissao != null ? money(comissao) : '—'}</span></div>
+                              {f.fixed_fee > 0 && <div className="brow sub"><span className="k">↳ custo fixo</span><span className="v">{money(f.fixed_fee)}</span></div>}
+                              <div className="brow"><span className="k">Frete{f.freight_is_estimate ? ' (est.)' : ''}</span><span className="v">{frete != null ? money(frete) : '—'}</span></div>
+                              <div className="brow total"><span className="k">Sobra estimada</span><span className={'v ' + (sobra >= 0 ? 'pos' : 'neg')}>{sobra != null ? money(sobra) : '—'}</span></div>
+                            </div>
+                          ) : (
+                            <div className="hint">clique em "Comparar tarifas"</div>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <div className="hint" style={{ marginTop: 8 }}>
+                    A sobra estimada já desconta a comissão, o frete e o imposto federal ({IMPOSTO_PCT}%). Não inclui ICMS nem o seu custo.
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="ghost" onClick={() => setPasso(2)} style={{ flex: '0 0 auto' }}>◀ Voltar</button>
+                  <button className="primary" onClick={validar} disabled={validando}>
+                    {validando ? 'Validando no Mercado Livre…' : '✔ Validar no Mercado Livre (não publica)'}
+                  </button>
+                </div>
+
+                {validacao && (validacao.ok ? (
+                  <div className="callout"><b>✓ O Mercado Livre aceitou o anúncio</b> — simulação, nada foi publicado. Você já pode publicar de verdade.</div>
+                ) : (
+                  <div className="callout bad">
+                    <b>O Mercado Livre apontou {validacao.erros.length} ponto(s):</b>
+                    <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+                      {validacao.erros.map((e, i) => <li key={i} style={{ fontSize: 12.5, marginBottom: 3 }}>{e.message_pt}</li>)}
+                    </ul>
+                  </div>
+                ))}
+
+                <button className="primary" onClick={publicar} disabled={!podePublicar || publicando}
+                  style={{ background: podePublicar ? undefined : 'var(--soft)' }}>
+                  {publicando ? 'Publicando…' : '🚀 Publicar anúncio'}
+                </button>
+                {!podePublicar && !publicando && (
+                  <div className="hint" style={{ textAlign: 'center' }}>
+                    Para liberar a publicação: complete o checklist e passe na validação.
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* checklist lateral */}
+          <div className="result-card">
+            <div className="card">
+              <h2><span className="n">✓</span> Boas práticas</h2>
+              <div className="pub-check">
+                <Item ok={check.categoria} txt="Categoria definida" />
+                <Item ok={check.titulo} txt={`Título ok (≤${TITULO_MAX}, sem termos proibidos)`} />
+                <Item ok={check.fotos} txt="Pelo menos 1 foto" />
+                <Item ok={check.fotosIdeal} txt="6+ fotos (ideal)" soft />
+                <Item ok={check.ficha} txt={reqAttrs.length ? `Ficha: obrigatórios (${reqOk.length}/${reqAttrs.length})` : 'Ficha técnica'} />
+                {temGtin && <Item ok={check.gtin} txt="Código de barras (GTIN/EAN)" />}
+                <Item ok={check.garantia} txt="Garantia definida" />
+                <Item ok={check.descricao} txt="Descrição ≥ 200 caracteres" soft />
+                <Item ok={check.preco} txt="Preço definido" />
+                <Item ok={check.quantidade} txt="Quantidade definida" />
+                <Item ok={!!validacao?.ok} txt="Validado pelo Mercado Livre" />
+              </div>
+              <div className="hint" style={{ marginTop: 10 }}>
+                Itens em cinza são recomendações — não bloqueiam a publicação.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------- PASSO 4: resultado ---------- */}
+      {passo === 4 && resultado && (
+        <div className="card">
+          <div className="verdict good">
+            <div className="lbl">Anúncio publicado</div>
+            <div className="big">🎉 {resultado.item_id}</div>
+            {resultado.health != null && <div className="pct">Qualidade da publicação: {Math.round(resultado.health * 100)}%</div>}
+          </div>
+          <div>
+            <div className="brow"><span className="k">Status</span><span className="v">{resultado.status || '—'}</span></div>
+            <div className="brow"><span className="k">Descrição enviada</span><span className="v">{resultado.description_ok === false ? 'falhou (edite depois)' : resultado.description_ok ? 'sim' : '—'}</span></div>
+          </div>
+          {resultado.warnings?.length > 0 && (
+            <div className="callout warn" style={{ marginTop: 12 }}>
+              <b>Avisos do Mercado Livre:</b>
+              <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                {resultado.warnings.map((w, i) => <li key={i} style={{ fontSize: 12.5 }}>{typeof w === 'string' ? w : (w.message || w.code)}</li>)}
+              </ul>
+            </div>
+          )}
+          {resultado.permalink && (
+            <a className="primary" href={resultado.permalink} target="_blank" rel="noreferrer"
+              style={{ display: 'block', textAlign: 'center', marginTop: 14, textDecoration: 'none' }}>
+              Abrir o anúncio no Mercado Livre ▸
+            </a>
+          )}
+          <button className="ghost" style={{ width: '100%', marginTop: 10 }}
+            onClick={() => { setAnuncio(null); setResultado(null); setValidacao(null); setResultados(null); setQ(''); setPasso(1) }}>
+            Publicar outro
+          </button>
+        </div>
+      )}
+
+      <footer>
+        A publicação usa a API oficial do Mercado Livre com a sua conta de vendedor conectada. "Validar" apenas simula
+        (não cria nada); só "Publicar" cria o anúncio de verdade na sua conta.
+      </footer>
+    </>
+  )
+}
+
+function Item({ ok, txt, soft }) {
+  return (
+    <div className={'pub-check-row' + (ok ? ' ok' : soft ? ' soft' : ' no')}>
+      <span className="pub-check-ic">{ok ? '✓' : soft ? '○' : '✗'}</span>{txt}
+    </div>
   )
 }
