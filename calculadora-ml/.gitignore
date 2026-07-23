@@ -1,6 +1,9 @@
 node_modules/
 dist/
 
+# cache local do mapa de calor (visitas por produto) — da pra regerar
+.cache-visitas.json
+
 # NUNCA versione segredos nem tokens
 .env
 .tokens.json
