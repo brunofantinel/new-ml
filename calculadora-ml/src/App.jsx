@@ -124,6 +124,8 @@ export default function App() {
   const [buscaMercado, setBuscaMercado] = useState('')
   // categoria mandada de "Categorias em alta" pra "Em alta"
   const [categoriaAlta, setCategoriaAlta] = useState('')
+  // dados mandados de "Consultar produto"/"Calculadora" pra "Publicar anúncio"
+  const [publicarSeed, setPublicarSeed] = useState(null)
 
   useEffect(() => {
     fetch('/api/auth/status')
@@ -141,12 +143,12 @@ export default function App() {
         <button className={view === 'vendidos' ? 'tab on' : 'tab'} onClick={() => setView('vendidos')}>Mais vendidos</button>
         <button className={view === 'subindo' ? 'tab on' : 'tab'} onClick={() => setView('subindo')}>Em alta</button>
         <button className={view === 'categorias' ? 'tab on' : 'tab'} onClick={() => setView('categorias')}>Categorias em alta</button>
-        <button className={view === 'publicar' ? 'tab on' : 'tab'} onClick={() => setView('publicar')}>Publicar anúncio</button>
+        <button className={view === 'publicar' ? 'tab on' : 'tab'} onClick={() => { setPublicarSeed(null); setView('publicar') }}>Publicar anúncio</button>
         <button className={view === 'vantagens' ? 'tab on' : 'tab'} onClick={() => setView('vantagens')}>Vantagens no ML</button>
       </nav>
 
       {view === 'publicar' ? (
-        <Publicar status={status} />
+        <Publicar status={status} inicial={publicarSeed} />
       ) : view === 'vantagens' ? (
         <Vantagens />
       ) : view === 'categorias' ? (
@@ -164,7 +166,7 @@ export default function App() {
       ) : view === 'mercado' ? (
         <Mercado inicial={buscaMercado} />
       ) : view === 'produto' ? (
-        <Produto />
+        <Produto onPublicar={(seed) => { setPublicarSeed(seed); setView('publicar') }} />
       ) : (
         <>
           <div className="eyebrow">Taxas reais · API oficial do Mercado Livre</div>
@@ -189,7 +191,7 @@ export default function App() {
                   </>
                 )}
               </div>
-              <Calculator />
+              <Calculator onPublicar={(seed) => { setPublicarSeed(seed); setView('publicar') }} />
             </>
           ) : (
             <div className="card connect-box">
@@ -377,7 +379,7 @@ function Linha({ k, v }) {
   return <div className="brow"><span className="k">{k}</span><span className="v">{v}</span></div>
 }
 
-function Produto() {
+function Produto({ onPublicar }) {
   const [cod, setCod] = useState('')
   const [busy, setBusy] = useState(false)
   const [p, setP] = useState(null)
@@ -442,6 +444,27 @@ function Produto() {
               <span className={'pill ' + (p.ativo ? '' : 'bad')}>{p.ativo ? 'Ativo' : 'Inativo'}</span>
               {p.fora_linha && <span className="pill warn">Fora de linha</span>}
             </div>
+            {onPublicar && (
+              <>
+                <button className="primary" style={{ marginTop: 14 }} onClick={() => onPublicar({
+                  gtin: p.codigo_barras,
+                  nome: p.descricao,
+                  overrides: {
+                    quantity: p.estoque,
+                    price: p.preco_venda,
+                    gtin: p.codigo_barras,
+                    brand: p.marca,
+                    model: p.referencia,
+                  },
+                })}>
+                  🚀 Publicar anúncio no Mercado Livre
+                </button>
+                <div className="hint" style={{ marginTop: 6 }}>
+                  Abre o assistente já preenchido com estes dados (título, código de barras, marca e estoque) —
+                  você revisa, completa a ficha e publica. Precisa da conta de vendedor conectada.
+                </div>
+              </>
+            )}
           </div>
 
           <div className="grid">
@@ -1699,7 +1722,7 @@ function ScannerModal({ onDetect, onClose }) {
   )
 }
 
-function Calculator() {
+function Calculator({ onPublicar }) {
   const [f, setF] = useState({
     titulo: '',
     categoryId: '',
@@ -2730,8 +2753,26 @@ function Calculator() {
                   O ML exige nesta categoria: {anuncioPrep.data.atributosObrigatorios.map((x) => x.name).join(', ')}.
                 </div>
               )}
+              {onPublicar && (
+                <button className="primary" style={{ marginTop: 14 }} onClick={() => onPublicar({
+                  catalogId: anuncioPrep.data.viaCatalogo ? anuncioPrep.data.catalogId : null,
+                  nome: anuncioPrep.data.titulo,
+                  gtin: anuncioPrep.data.gtin,
+                  category_id: anuncioPrep.data.categoriaId,
+                  overrides: {
+                    quantity: anuncioPrep.data.quantidade,
+                    price: anuncioPrep.data.preco,
+                    gtin: anuncioPrep.data.gtin,
+                    brand: anuncioPrep.data.marca,
+                    model: anuncioPrep.data.modelo,
+                  },
+                })}>
+                  🚀 Publicar de verdade no Mercado Livre
+                </button>
+              )}
               <div className="hint" style={{ marginTop: 8 }}>
-                Nada foi publicado — isto é só um resumo pronto para anunciar, pra você conferir.
+                Este é só um resumo. Clique em “Publicar de verdade” para abrir o assistente já preenchido, revisar e
+                publicar na sua conta (precisa da conta de vendedor conectada).
               </div>
             </div>
           )}
@@ -2867,7 +2908,7 @@ function Calculator() {
 // Publicar anúncio — assistente em 4 passos que cria o anúncio pela API do ML
 // a partir de um produto do catálogo, seguindo as boas práticas de qualidade.
 // ===========================================================================
-function Publicar({ status }) {
+function Publicar({ status, inicial }) {
   const [passo, setPasso] = useState(1)
   // passo 1 — busca
   const [q, setQ] = useState('')
@@ -2887,6 +2928,13 @@ function Publicar({ status }) {
   const [publicando, setPublicando] = useState(false)
   const [resultado, setResultado] = useState(null)
   const [erro, setErro] = useState('')
+
+  // Pré-preenchimento quando o usuário chega de outra tela (Consultar produto
+  // ou Calculadora) com um "seed". carregarSeed é hoisted (declaração de função).
+  useEffect(() => {
+    if (inicial) carregarSeed(inicial)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inicial])
 
   // Gate: publicar exige conta de vendedor conectada (o app token não publica).
   if (status && !status.seller_connected) {
@@ -2934,27 +2982,44 @@ function Publicar({ status }) {
     setBuscando(false)
   }
 
-  async function escolher(prod) {
+  async function escolher(prod, overrides = null) {
     setCarregando(true); setErro('')
     try {
       const d = await fetch('/api/publicar/prefill?catalog_id=' + encodeURIComponent(prod.id)).then((r) => r.json())
       if (d.error) throw new Error(d.error)
+      const catAttrs = d.category_attributes || []
+      const attributes = { ...(d.attributes || {}) }
+      // overlay do ERP: preenche GTIN/marca/modelo só se a categoria tiver o
+      // atributo e ele ainda estiver vazio (não sobrescreve o que o catálogo trouxe).
+      if (overrides) {
+        const setIfEmpty = (id, val) => {
+          if (!val) return
+          if (!catAttrs.some((a) => a.id === id)) return
+          if (String(attributes[id] ?? '').trim()) return
+          attributes[id] = String(val)
+        }
+        setIfEmpty('GTIN', overrides.gtin)
+        setIfEmpty('EAN', overrides.gtin)
+        setIfEmpty('BRAND', overrides.brand)
+        setIfEmpty('MODEL', overrides.model)
+      }
+      const val = (v) => (v != null && v !== '' ? String(v) : null)
       setAnuncio({
         catalog_id: d.catalog_id,
         catalog_listing: true,
         title: d.title || '',
-        category_id: d.category_id || '',
+        category_id: d.category_id || overrides?.category_id || '',
         category_path: d.category_path || '',
         domain_id: d.domain_id || '',
         condition: d.suggested_condition || 'new',
         pictures: Array.isArray(d.pictures) ? d.pictures.slice(0, 10) : [],
-        attributes: d.attributes || {},
-        category_attributes: d.category_attributes || [],
+        attributes,
+        category_attributes: catAttrs,
         description: '',
         warranty_type: 'Garantia do vendedor',
         warranty_dias: '90',
-        price: '',
-        quantity: '1',
+        price: val(overrides?.price) || '',
+        quantity: val(overrides?.quantity) || '1',
         listing_type_id: 'gold_special',
         logistic_type: 'cross_docking',
         free_shipping: true,
@@ -2963,6 +3028,35 @@ function Publicar({ status }) {
       setPasso(2)
     } catch {
       setErro('Não consegui carregar esse produto do catálogo. Tente outro.')
+    }
+    setCarregando(false)
+  }
+
+  // Pré-preenche o assistente a partir de um "seed" de outra tela (Consultar
+  // produto / Calculadora). Resolve o produto no catálogo do ML pelo GTIN e
+  // depois pelo nome; achando, cai no passo 2 já preenchido e editável. Se não
+  // achar, avisa e manda pra busca manual (decisão do usuário).
+  async function carregarSeed(seed) {
+    if (!seed) return
+    setCarregando(true); setErro(''); setResultados(null)
+    try {
+      let catId = seed.catalogId || null
+      if (!catId) {
+        const gtin = String(seed.gtin || '').replace(/\D/g, '')
+        for (const termo of [gtin, seed.nome].filter(Boolean)) {
+          const r = await fetch('/api/publicar/busca?q=' + encodeURIComponent(termo)).then((res) => res.json())
+          if (r.results && r.results.length) { catId = r.results[0].id; break }
+        }
+      }
+      if (catId) {
+        await escolher({ id: catId }, { ...(seed.overrides || {}), category_id: seed.category_id })
+      } else {
+        setQ(seed.nome || '')
+        setPasso(1)
+        setErro('Não achei este produto no catálogo do Mercado Livre. Busque manualmente pelo nome (marca + modelo) abaixo.')
+      }
+    } catch {
+      setErro('Não consegui preparar o anúncio a partir do produto. Tente pela busca.')
     }
     setCarregando(false)
   }
