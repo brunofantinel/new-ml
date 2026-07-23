@@ -1154,7 +1154,7 @@ function Calculator() {
           </div>
 
           <div className="card">
-            <h2><span className="n">2</span> Categoria (define a comissão real)</h2>
+            <h2><span className="n">2</span> Categoria</h2>
             <div className="field">
               <label>Descubra a categoria e o preço do concorrente</label>
               <div className="row-inline">
