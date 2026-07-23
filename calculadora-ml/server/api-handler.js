@@ -42,7 +42,10 @@ export async function handleApi(req, res) {
       return true
     }
     if (path === '/api/em-alta') {
-      json(res, await getEmAlta(url.searchParams.get('categoria') || ''))
+      json(res, await getEmAlta(
+        url.searchParams.get('categoria') || '',
+        Number(url.searchParams.get('dias')) || 0,
+      ))
       return true
     }
     if (path === '/api/termos-alta') { json(res, await termosDoSite()); return true }

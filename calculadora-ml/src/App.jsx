@@ -483,6 +483,7 @@ function EmAlta({ onPesquisar }) {
   const [dados, setDados] = useState(null)
   const [busy, setBusy] = useState(false)
   const [termosSite, setTermosSite] = useState([])
+  const [janela, setJanela] = useState(30) // janela das visitas: 30, 60 ou 90 dias
 
   useEffect(() => {
     fetch('/api/categorias').then((r) => r.json()).then((d) => setRaizes(d.filhas || [])).catch(() => {})
@@ -498,15 +499,24 @@ function EmAlta({ onPesquisar }) {
     } catch { setFilhas([]) }
   }
 
-  async function carregar(catId) {
+  async function carregar(catId, dias = janela) {
     if (!catId) return
     setBusy(true); setDados(null)
     try {
-      setDados(await fetch('/api/em-alta?categoria=' + encodeURIComponent(catId)).then((r) => r.json()))
+      setDados(await fetch(
+        '/api/em-alta?categoria=' + encodeURIComponent(catId) + '&dias=' + dias
+      ).then((r) => r.json()))
     } catch {
       setDados({ erro: 'falhou', itens: [] })
     }
     setBusy(false)
+  }
+
+  // trocar a janela recarrega a categoria que está na tela
+  function trocarJanela(dias) {
+    setJanela(dias)
+    const atual = filha || raiz
+    if (atual && dados) carregar(atual, dias)
   }
 
   const itens = dados?.itens || []
@@ -551,6 +561,27 @@ function EmAlta({ onPesquisar }) {
             Ver o ranking da seção inteira mesmo assim
           </button>
         )}
+
+        {/* janela das visitas — mesma régua do termômetro de procura */}
+        <div className="field" style={{ marginTop: 16, marginBottom: 0 }}>
+          <label className="plain">Janela das visitas</label>
+          <div className="segmented">
+            {[30, 60, 90].map((d) => (
+              <button
+                key={d}
+                type="button"
+                className={janela === d ? 'on' : ''}
+                onClick={() => trocarJanela(d)}
+              >
+                {d} dias
+              </button>
+            ))}
+          </div>
+          <div className="hint">
+            Janela curta reage rápido a novidade; janela longa é mais estável e menos sujeita a
+            pico de um dia só. O ranking de mais vendidos não muda — só a leitura de procura.
+          </div>
+        </div>
       </div>
 
       {!dados && !busy && termosSite.length > 0 && (

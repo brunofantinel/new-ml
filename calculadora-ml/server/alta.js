@@ -52,7 +52,11 @@ const attr = (lista, id) => (lista || []).find((a) => a.id === id)?.value_name |
 // Um mede o acumulado, o outro o movimento. Juntos respondem "vende bem?" e
 // "está esquentando ou esfriando?".
 
-const JANELA_DIAS = 30
+// Janelas que a tela oferece. Quanto maior, mais estável o sinal — mas mais
+// devagar ele reage a uma mudança recente.
+const JANELAS = [30, 60, 90]
+const JANELA_PADRAO = 30
+const validarJanela = (d) => (JANELAS.includes(Number(d)) ? Number(d) : JANELA_PADRAO)
 
 async function avaliacoes(itemId) {
   if (!itemId) return null
@@ -68,14 +72,14 @@ async function avaliacoes(itemId) {
 
 // Visitas somadas de até 3 anúncios do mesmo produto (sinal menos ruidoso),
 // com a comparação entre as duas metades da janela.
-async function demanda(itemIds) {
+async function demanda(itemIds, dias = JANELA_PADRAO) {
   const ids = (itemIds || []).filter(Boolean).slice(0, 3)
   if (!ids.length) return null
-  const corte = Date.now() - (JANELA_DIAS / 2) * 24 * 3600 * 1000
+  const corte = Date.now() - (dias / 2) * 24 * 3600 * 1000
   let total = 0, recente = 0, antigo = 0, ok = 0
   await Promise.all(ids.map(async (id) => {
     try {
-      const v = await mlGet(`/items/${id}/visits/time_window?last=${JANELA_DIAS}&unit=day`)
+      const v = await mlGet(`/items/${id}/visits/time_window?last=${dias}&unit=day`)
       ok++
       for (const p of v?.results || []) {
         const n = Number(p?.total) || 0
@@ -102,8 +106,8 @@ async function demanda(itemIds) {
   }
   return {
     visitas: total,
-    visitas_dia: Math.round((total / JANELA_DIAS) * 10) / 10,
-    recente, antigo, direcao, variacao, dias: JANELA_DIAS,
+    visitas_dia: Math.round((total / dias) * 10) / 10,
+    recente, antigo, direcao, variacao, dias,
   }
 }
 
@@ -184,7 +188,7 @@ export async function categoriasFilhas(id) {
 }
 
 // --- resolve UMA posição do ranking ---------------------------------------
-async function resolver(entrada) {
+async function resolver(entrada, dias) {
   const base = { id: entrada.id, posicao: entrada.position, tipo: entrada.type }
 
   if (entrada.type === 'PRODUCT') {
@@ -195,7 +199,7 @@ async function resolver(entrada) {
     const res = Array.isArray(itens?.results) ? itens.results : []
     const precos = res.map((x) => x.price).filter((v) => v != null)
     const itemIds = res.map((x) => x.item_id).filter(Boolean)
-    const [aval, dem] = await Promise.all([avaliacoes(itemIds[0]), demanda(itemIds)])
+    const [aval, dem] = await Promise.all([avaliacoes(itemIds[0]), demanda(itemIds, dias)])
     return {
       ...base,
       avaliacoes: aval?.total ?? null,
@@ -226,7 +230,7 @@ async function resolver(entrada) {
       nVend = itens?.paging?.total ?? res.length
       categoryId = res[0]?.category_id || null
       const itemIds = res.map((x) => x.item_id).filter(Boolean)
-      ;[aval, dem] = await Promise.all([avaliacoes(itemIds[0]), demanda(itemIds)])
+      ;[aval, dem] = await Promise.all([avaliacoes(itemIds[0]), demanda(itemIds, dias)])
     }
     return {
       ...base,
@@ -251,7 +255,7 @@ async function resolver(entrada) {
 
   // ITEM: a API não abre os dados do anúncio pra token de aplicação, mas as
   // visitas e as avaliações desse anúncio continuam públicas.
-  const [aval, dem] = await Promise.all([avaliacoes(entrada.id), demanda([entrada.id])])
+  const [aval, dem] = await Promise.all([avaliacoes(entrada.id), demanda([entrada.id], dias)])
   return {
     ...base,
     nome: null,
@@ -269,11 +273,12 @@ async function resolver(entrada) {
 }
 
 // --- o ranking completo de uma categoria ----------------------------------
-export async function getEmAlta(categoryId) {
+export async function getEmAlta(categoryId, diasPedido) {
   const cat = String(categoryId || '').trim()
   if (!cat) return { erro: 'sem_categoria', itens: [] }
 
-  const chave = `alta:${cat}`
+  const dias = validarJanela(diasPedido)
+  const chave = `alta:${cat}:${dias}`
   const c = doCache(chave)
   if (c) return c
 
@@ -297,7 +302,7 @@ export async function getEmAlta(categoryId) {
   // resolve em blocos pra não disparar dezenas de chamadas de uma vez
   const itens = []
   for (let i = 0; i < conteudo.length; i += 4) {
-    const bloco = await Promise.all(conteudo.slice(i, i + 4).map((e) => resolver(e).catch(() => null)))
+    const bloco = await Promise.all(conteudo.slice(i, i + 4).map((e) => resolver(e, dias).catch(() => null)))
     itens.push(...bloco.filter(Boolean))
   }
 
@@ -315,7 +320,8 @@ export async function getEmAlta(categoryId) {
     historico: {
       comparado_com: hist.comparado_com,
       dias_guardados: hist.dias_guardados,
-      janela_visitas: JANELA_DIAS,
+      janela_visitas: dias,
+      janelas: JANELAS,
     },
     itens,
   })
