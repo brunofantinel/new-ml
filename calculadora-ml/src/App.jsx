@@ -1154,32 +1154,34 @@ function Calculator() {
             </div>
           </div>
 
-          {/* card-busca-categoria (nó 2480:3117) — card próprio, acima do passo 2 */}
-          <div className="cat-search">
-            <div className="cat-search-title">
-              <p className="t">Não achou a categoria?</p>
-              <p className="d">
-                Caso o produto exato não apareça, busque pela categoria geral para mapear taxas e médias de mercado.
-              </p>
-            </div>
-            <div className="cat-search-row">
-              <div className="cat-search-input">
-                <img src={iconSearch} alt="" />
-                <input
-                  placeholder="Digite a categoria..."
-                  value={f.titulo}
-                  onChange={upd('titulo')}
-                  onKeyDown={(e) => { if (e.key === 'Enter') predict() }}
-                />
-              </div>
-              <button className="cat-search-btn" onClick={predict} disabled={predicting}>
-                {predicting ? '…' : 'Buscar'}
-              </button>
-            </div>
-          </div>
-
           <div className="card">
             <h2><span className="n">2</span> Categoria</h2>
+
+            {/* card-busca-categoria (nó 2480:3117) — dentro do container das
+                categorias, logo acima do bloco "É este o seu produto?" */}
+            <div className="cat-search">
+              <div className="cat-search-title">
+                <p className="t">Não achou a categoria?</p>
+                <p className="d">
+                  Caso o produto exato não apareça, busque pela categoria geral para mapear taxas e médias de mercado.
+                </p>
+              </div>
+              <div className="cat-search-row">
+                <div className="cat-search-input">
+                  <img src={iconSearch} alt="" />
+                  <input
+                    placeholder="Digite a categoria..."
+                    value={f.titulo}
+                    onChange={upd('titulo')}
+                    onKeyDown={(e) => { if (e.key === 'Enter') predict() }}
+                  />
+                </div>
+                <button className="cat-search-btn" onClick={predict} disabled={predicting}>
+                  {predicting ? '…' : 'Buscar'}
+                </button>
+              </div>
+            </div>
+
             <div className="field">
 
               {comp && (comp.matched ? (
