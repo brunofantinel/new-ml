@@ -144,11 +144,14 @@ export default function App() {
         <button className={view === 'subindo' ? 'tab on' : 'tab'} onClick={() => setView('subindo')}>Em alta</button>
         <button className={view === 'categorias' ? 'tab on' : 'tab'} onClick={() => setView('categorias')}>Categorias em alta</button>
         <button className={view === 'publicar' ? 'tab on' : 'tab'} onClick={() => { setPublicarSeed(null); setView('publicar') }}>Publicar anúncio</button>
+        <button className={view === 'anuncios' ? 'tab on' : 'tab'} onClick={() => setView('anuncios')}>Meus Anúncios</button>
         <button className={view === 'vantagens' ? 'tab on' : 'tab'} onClick={() => setView('vantagens')}>Vantagens no ML</button>
       </nav>
 
       {view === 'publicar' ? (
         <Publicar status={status} inicial={publicarSeed} />
+      ) : view === 'anuncios' ? (
+        <MeusAnuncios status={status} />
       ) : view === 'vantagens' ? (
         <Vantagens />
       ) : view === 'categorias' ? (
@@ -3552,5 +3555,220 @@ function Item({ ok, txt, soft }) {
     <div className={'pub-check-row' + (ok ? ' ok' : soft ? ' soft' : ' no')}>
       <span className="pub-check-ic">{ok ? '✓' : soft ? '○' : '✗'}</span>{txt}
     </div>
+  )
+}
+
+// ===========================================================================
+// Meus Anúncios — lista todos os anúncios da conta do vendedor com métricas
+// (preço, estoque, vendas, visitas, qualidade, tipo, logística, status).
+// ===========================================================================
+const MA_STATUS = { active: { txt: 'Ativo', cls: '' }, paused: { txt: 'Pausado', cls: 'warn' }, closed: { txt: 'Encerrado', cls: 'bad' }, under_review: { txt: 'Em revisão', cls: 'warn' }, inactive: { txt: 'Inativo', cls: 'bad' } }
+const MA_TIPO = { gold_pro: 'Premium', gold_special: 'Clássico', gold_premium: 'Premium', gold: 'Ouro', silver: 'Prata', bronze: 'Bronze', free: 'Grátis' }
+const MA_COND = { new: 'Novo', used: 'Usado', not_specified: '' }
+const maLogistica = (id) => (LOGISTIC_TYPES.find((t) => t.id === id)?.label || (id || '—'))
+
+function MeusAnuncios({ status }) {
+  const [itens, setItens] = useState([])
+  const [paging, setPaging] = useState(null)
+  const [carregando, setCarregando] = useState(false)
+  const [erro, setErro] = useState('')
+  const [q, setQ] = useState('')
+  const [fStatus, setFStatus] = useState('todos')
+  const [fTipo, setFTipo] = useState('todos')
+  const [sort, setSort] = useState('recentes')
+  const [trend, setTrend] = useState({}) // id -> { loading, serie, dias }
+
+  async function carregar(off) {
+    setCarregando(true); setErro('')
+    try {
+      const d = await fetch('/api/meus-anuncios?limit=50&offset=' + off).then((r) => r.json())
+      if (d.error) {
+        setErro(d.error === 'vendedor_nao_conectado'
+          ? 'Conecte sua conta de vendedor para ver seus anúncios.'
+          : (d.detail?.message || d.error))
+      } else {
+        setPaging(d.paging)
+        setItens((a) => (off === 0 ? d.results : [...a, ...d.results]))
+      }
+    } catch {
+      setErro('Não consegui carregar seus anúncios agora. Tente de novo.')
+    }
+    setCarregando(false)
+  }
+
+  useEffect(() => {
+    if (status?.seller_connected) carregar(0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status?.seller_connected])
+
+  async function verTendencia(id) {
+    setTrend((s) => ({ ...s, [id]: { loading: true } }))
+    try {
+      const d = await fetch('/api/serie-visitas?itens=' + encodeURIComponent(id) + '&dias=60').then((r) => r.json())
+      setTrend((s) => ({ ...s, [id]: { loading: false, serie: d.serie, dias: d.dias } }))
+    } catch {
+      setTrend((s) => ({ ...s, [id]: { loading: false } }))
+    }
+  }
+
+  // Gate: precisa do vendedor conectado (o app token não lê vendas/visitas/health).
+  if (status && !status.seller_connected) {
+    return (
+      <>
+        <div className="eyebrow">Seus anúncios · API oficial do Mercado Livre</div>
+        <h1>Meus Anúncios</h1>
+        <p className="sub">Veja todos os seus anúncios com preço, estoque, vendas, visitas e qualidade — direto da sua conta.</p>
+        <div className="card connect-box">
+          <div className="big-ic">🔑</div>
+          <h2 style={{ justifyContent: 'center' }}>Conecte sua conta de vendedor</h2>
+          <p className="sub" style={{ margin: '0 auto 16px' }}>
+            As métricas dos seus anúncios (vendas, visitas, qualidade) só aparecem com a sua conta conectada.
+          </p>
+          <a className="primary" href="/api/auth/login" style={{ display: 'inline-block', width: 'auto', textDecoration: 'none' }}>
+            Conectar minha conta
+          </a>
+        </div>
+      </>
+    )
+  }
+
+  // filtros + ordenação (sobre os anúncios já carregados)
+  let lista = itens
+  if (fStatus !== 'todos') lista = lista.filter((i) => i.status === fStatus)
+  if (fTipo !== 'todos') lista = lista.filter((i) => i.listing_type === fTipo)
+  if (q.trim()) {
+    const t = q.trim().toLowerCase()
+    lista = lista.filter((i) => `${i.title} ${i.id}`.toLowerCase().includes(t))
+  }
+  const desc = (f) => (a, b) => (f(b) ?? -1) - (f(a) ?? -1)
+  if (sort === 'visitas') lista = [...lista].sort(desc((i) => i.visits))
+  else if (sort === 'vendas') lista = [...lista].sort(desc((i) => i.sold))
+  else if (sort === 'qualidade') lista = [...lista].sort(desc((i) => i.health))
+  else if (sort === 'estoque') lista = [...lista].sort(desc((i) => i.available))
+  else if (sort === 'preco_desc') lista = [...lista].sort(desc((i) => i.price))
+  else if (sort === 'preco_asc') lista = [...lista].sort((a, b) => (a.price ?? 1e12) - (b.price ?? 1e12))
+  // 'recentes' mantém a ordem do servidor (mais novos primeiro)
+
+  const total = paging?.total ?? itens.length
+  const ativos = itens.filter((i) => i.status === 'active').length
+  const pausados = itens.filter((i) => i.status === 'paused').length
+  const somaVisitas = itens.reduce((s, i) => s + (i.visits || 0), 0)
+  const somaVendas = itens.reduce((s, i) => s + (i.sold || 0), 0)
+  const temMais = itens.length < total
+
+  return (
+    <>
+      <div className="eyebrow">Seus anúncios · API oficial do Mercado Livre</div>
+      <h1>Meus Anúncios</h1>
+      <p className="sub">
+        Todos os seus anúncios no Mercado Livre com as métricas da sua conta: preço, estoque, vendas, visitas,
+        qualidade da publicação, tipo de anúncio e logística.
+      </p>
+
+      {erro && <div className="callout bad"><b>Erro:</b> {erro}</div>}
+
+      <div className="tiles">
+        <div className="tile"><b>{fmtNum(total)}</b><span>anúncios no total</span></div>
+        <div className="tile good"><b>{fmtNum(ativos)}</b><span>ativos (carregados)</span></div>
+        <div className="tile warn"><b>{fmtNum(pausados)}</b><span>pausados (carregados)</span></div>
+        <div className="tile"><b>{fmtNum(somaVisitas)}</b><span>visitas somadas (carregados)</span></div>
+      </div>
+
+      <div className="filters card">
+        <input placeholder="Buscar por título ou código (MLB…)" value={q} onChange={(e) => setQ(e.target.value)} />
+        <select value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
+          <option value="todos">Todos os status</option>
+          <option value="active">Ativos</option>
+          <option value="paused">Pausados</option>
+          <option value="closed">Encerrados</option>
+        </select>
+        <select value={fTipo} onChange={(e) => setFTipo(e.target.value)}>
+          <option value="todos">Todos os tipos</option>
+          <option value="gold_special">Clássico</option>
+          <option value="gold_pro">Premium</option>
+        </select>
+        <select value={sort} onChange={(e) => setSort(e.target.value)}>
+          <option value="recentes">Ordenar: mais recentes</option>
+          <option value="visitas">Ordenar: mais visitas</option>
+          <option value="vendas">Ordenar: mais vendas</option>
+          <option value="qualidade">Ordenar: maior qualidade</option>
+          <option value="estoque">Ordenar: mais estoque</option>
+          <option value="preco_desc">Ordenar: maior preço</option>
+          <option value="preco_asc">Ordenar: menor preço</option>
+        </select>
+      </div>
+
+      {itens.length === 0 && carregando && <p className="spin">Carregando seus anúncios…</p>}
+      {itens.length === 0 && !carregando && !erro && <p className="hint">Nenhum anúncio encontrado nesta conta.</p>}
+
+      {itens.length > 0 && (
+        <p className="hint">{lista.length} anúncio(s) · mostrando {itens.length} de {fmtNum(total)} carregados</p>
+      )}
+
+      <div className="vlist">
+        {lista.map((it) => {
+          const st = MA_STATUS[it.status] || { txt: it.status || '—', cls: '' }
+          const tr = trend[it.id]
+          const temDesconto = it.original_price != null && it.original_price > (it.price ?? 0)
+          return (
+            <div className="vcard card" key={it.id}>
+              <div className="mkt-prod" style={{ marginBottom: 10 }}>
+                {it.thumbnail && <img src={it.thumbnail} alt="" className="mkt-thumb" />}
+                <div style={{ flex: 1 }}>
+                  <div className="mkt-name">{it.title}</div>
+                  <div className="hint"><code>{it.id}</code></div>
+                  <div className="vhead" style={{ marginTop: 6 }}>
+                    <span className={'pill ' + st.cls}>{st.txt}</span>
+                    {it.listing_type && <span className="vgrp">{MA_TIPO[it.listing_type] || it.listing_type}</span>}
+                    {it.catalog && <span className="vgrp">catálogo</span>}
+                    {it.condition && MA_COND[it.condition] && <span className="vgrp">{MA_COND[it.condition]}</span>}
+                    {(it.sub_status || []).includes('out_of_stock') && <span className="pill bad">sem estoque</span>}
+                  </div>
+                </div>
+              </div>
+
+              <div className="vrows">
+                <div className="brow">
+                  <span className="k">Preço</span>
+                  <span className="v">
+                    {temDesconto && <span style={{ textDecoration: 'line-through', color: 'var(--soft)', marginRight: 6, fontWeight: 400 }}>{money(it.original_price)}</span>}
+                    {money(it.price)}
+                  </span>
+                </div>
+                <div className="brow"><span className="k">Estoque</span><span className="v">{fmtNum(it.available)}</span></div>
+                <div className="brow"><span className="k">Vendas</span><span className="v">{fmtNum(it.sold)}</span></div>
+                <div className="brow"><span className="k">Visitas (total)</span><span className="v">{fmtNum(it.visits)}</span></div>
+                <div className="brow"><span className="k">Qualidade (health)</span><span className="v">{it.health != null ? Math.round(it.health * 100) + '%' : '—'}</span></div>
+                <div className="brow"><span className="k">Logística</span><span className="v">{maLogistica(it.logistic_type)}{it.free_shipping ? ' · frete grátis' : ''}</span></div>
+                <div className="brow"><span className="k">Criado</span><span className="v">{it.date_created ? new Date(it.date_created).toLocaleDateString('pt-BR') : '—'}</span></div>
+                <div className="brow"><span className="k">Atualizado</span><span className="v">{it.last_updated ? new Date(it.last_updated).toLocaleDateString('pt-BR') : '—'}</span></div>
+              </div>
+
+              {tr?.serie?.length > 1 && (
+                <div style={{ marginTop: 10 }}><GraficoVisitas serie={tr.serie} dias={tr.dias} tom="neutro" /></div>
+              )}
+
+              <div className="vfoot">
+                <button className="ghost" disabled={tr?.loading} onClick={() => verTendencia(it.id)}>
+                  {tr?.loading ? 'Buscando…' : tr?.serie ? 'Atualizar tendência' : 'Ver visitas por dia'}
+                </button>
+                {it.permalink && <a className="ghost link" href={it.permalink} target="_blank" rel="noreferrer">Abrir no Mercado Livre ▸</a>}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {temMais && (
+        <button className="primary" style={{ marginTop: 16 }} disabled={carregando} onClick={() => carregar(itens.length)}>
+          {carregando ? 'Carregando…' : `Ver mais anúncios (${fmtNum(total - itens.length)} restantes)`}
+        </button>
+      )}
+
+      <footer>
+        Métricas lidas ao vivo da API oficial do Mercado Livre com a sua conta conectada. Vendas, visitas e qualidade
+        (health) só aparecem para o dono do anúncio. Ordenação e filtros se aplicam aos anúncios já carregados.
+      </footer>
+    </>
   )
 }

@@ -1,4 +1,4 @@
-import { authStatus, getFees, buildAuthUrl, exchangeCode, getCatalogLive, getTendenciaVisitas, mlUploadPicture } from './ml.js'
+import { authStatus, getFees, buildAuthUrl, exchangeCode, getCatalogLive, getTendenciaVisitas, mlUploadPicture, getMeusAnuncios } from './ml.js'
 import { findCompetitor, suggestCategories, getAnuncioBase, buscarCategorias, getPacoteAnuncio } from './catalog.js'
 import { pesquisarMercado, buscarAnuncios } from './mercado.js'
 import { consultarProdutoErp, consultarPorBarras, erpStatus } from './erp.js'
@@ -144,6 +144,15 @@ export async function handleApi(req, res) {
         margem_rs: margemRs,
         margem_pct: margemPct,
       })
+      return true
+    }
+
+    // ===== Meus anúncios (vendedor) =====
+    if (path === '/api/meus-anuncios') {
+      json(res, await getMeusAnuncios({
+        limit: Number(url.searchParams.get('limit')) || 50,
+        offset: Number(url.searchParams.get('offset')) || 0,
+      }))
       return true
     }
 
