@@ -676,6 +676,48 @@ function ProdutosSubindo({ onPesquisar, onVerCategoria }) {
         )}
       </div>
 
+      {/* Produtos que praticamente não existiam no começo da janela: o
+          percentual deles não tem base de comparação, então vão à parte,
+          ordenados por tamanho. É onde aparece lançamento e viral. */}
+      {rel.estreantes?.length > 0 && (
+        <div className="card">
+          <h2>✨ Estreantes <span className="pill">{rel.estreantes.length}</span></h2>
+          <div className="hint" style={{ marginBottom: 12 }}>
+            Quase não tinham visita no começo da janela e hoje têm muita — lançamento, viral ou anúncio
+            novo. Ficam fora do ranking acima porque o percentual não teria base de comparação
+            (sairiam com “+668.154%” e liderariam tudo). Aqui a ordem é o tamanho da procura de hoje.
+          </div>
+          <div className="alta-grid">
+            {rel.estreantes.slice(0, 12).map((p, i) => (
+              <CardAlta
+                key={`e-${p.tipo}-${p.id}`}
+                it={{
+                  ...p,
+                  posicao: i + 1,
+                  catalogo: true,
+                  preco_min: p.preco,
+                  demanda: {
+                    visitas_dia: p.visitas_dia,
+                    variacao: null,
+                    direcao: 'subindo',
+                    serie: p.serie,
+                    dias: rel.janela_dias,
+                    dias_sem_visita: (p.serie || []).filter((n) => n === 0).length,
+                  },
+                }}
+                janelaInicial={rel.janela_dias}
+                onPesquisar={onPesquisar}
+                rodape={
+                  <button type="button" className="alta-cat" onClick={() => onVerCategoria(p.categoria.id)}>
+                    #{p.posicao} em vendas · {p.categoria.path} ›
+                  </button>
+                }
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       <footer>
         Crescimento medido comparando a metade recente da janela com a anterior, nas visitas diárias dos
         anúncios de cada produto. Visita mede procura, não venda. Em produto com muitos vendedores a
@@ -856,6 +898,14 @@ function CategoriasAlta({ onVerProdutos }) {
 
 const fmtNum = (n) => (n == null ? '—' : Number(n).toLocaleString('pt-BR'))
 
+// Crescimento acima de ~5x fica ilegivel em porcentagem ("+668154%"), entao
+// vira multiplicador: "67x mais" diz a mesma coisa e da pra ler.
+const fmtVariacao = (v) => {
+  if (v == null) return ''
+  if (v > 500) return `${Math.round(1 + v / 100).toLocaleString('pt-BR')}× mais`
+  return `${v > 0 ? '+' : ''}${v}%`
+}
+
 // Uma linha da lista de categorias: resumo sempre visível, detalhe ao clicar.
 function CategoriaLinha({ c, pos, aberta, onToggle, onVerProdutos }) {
   const tom = c.direcao === 'subindo' ? 'sobe' : c.direcao === 'caindo' ? 'cai' : 'neutro'
@@ -1005,7 +1055,7 @@ function CardAlta({ it, janelaInicial, onPesquisar, rodape = null }) {
           {dem && (
             <span className={'alta-sinal forte ' + tom}>
               <i className="pt" /> {dem.visitas_dia.toLocaleString('pt-BR')} visitas/dia
-              {dem.direcao === 'subindo' && ` · subindo${dem.variacao != null ? ` +${dem.variacao}%` : ''}`}
+              {dem.direcao === 'subindo' && ` · subindo${dem.variacao != null ? ` ${fmtVariacao(dem.variacao)}` : ''}`}
               {dem.direcao === 'caindo' && ` · caindo ${dem.variacao}%`}
               {dem.direcao === 'estavel' && ' · estável'}
               {dem.direcao === 'pouco movimento' && ' · pouco movimento'}
@@ -1038,7 +1088,8 @@ function CardAlta({ it, janelaInicial, onPesquisar, rodape = null }) {
               <span className="t">Visitas · últimos {janela} dias</span>
               {dem.variacao != null && dem.direcao !== 'pouco movimento' && (
                 <span className={'v ' + tom}>
-                  {dem.variacao > 0 ? '▲' : dem.variacao < 0 ? '▼' : '='} {Math.abs(dem.variacao)}%
+                  {dem.variacao > 0 ? '▲' : dem.variacao < 0 ? '▼' : '='}{' '}
+                  {dem.variacao > 500 ? fmtVariacao(dem.variacao) : `${Math.abs(dem.variacao)}%`}
                 </span>
               )}
             </div>

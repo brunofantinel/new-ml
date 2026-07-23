@@ -118,13 +118,15 @@ const relatorio = {
 gravarRelatorio(relatorio)
 
 // --- relatorio 2: produtos em alta ---------------------------------------
-const emAlta = montarProdutosEmAlta(pontuadas)
+const { produtos: emAlta, estreantes } = montarProdutosEmAlta(pontuadas)
 gravarProdutos({
   janela_dias: DIAS,
   categorias_varridas: pontuadas.length,
   produtos_medidos: pontuadas.reduce((s, c) => s + (c.produtos?.length || 0), 0),
   total: emAlta.length,
+  total_estreantes: estreantes.length,
   produtos: emAlta,
+  estreantes,
 })
 
 // --- resumo ---------------------------------------------------------------
@@ -134,6 +136,7 @@ console.log(`  com ranking: ${pontuadas.length}`)
 console.log(`  sem ranking publicado pelo ML: ${relatorio.sem_ranking.length}`)
 console.log(`  arquivo: ${CAMINHO_RELATORIO}`)
 console.log(`  produtos subindo: ${emAlta.length} (de ${pontuadas.reduce((s, c) => s + (c.produtos?.length || 0), 0)} medidos)`)
+console.log(`  estreantes (sem base pra comparar): ${estreantes.length}`)
 console.log(`  arquivo: ${CAMINHO_PRODUTOS}`)
 
 const fmt = (n) => (n == null ? '—' : n.toLocaleString('pt-BR'))
@@ -152,4 +155,14 @@ for (const [i, p] of emAlta.slice(0, 10).entries()) {
     `${String(i + 1).padStart(3)}. [${String(p.score).padStart(2)}] ${String(p.nome || p.id).slice(0, 44).padEnd(44)} ` +
     `${String(p.visitas_dia).padStart(8)} vis/dia +${p.variacao}% · ${p.n_vend ?? '?'} vend · ${p.categoria.nome.slice(0, 22)}`
   )
+}
+
+if (estreantes.length) {
+  console.log('\nTop 5 estreantes (nasceram dentro da janela — sem % comparavel):')
+  for (const [i, p] of estreantes.slice(0, 5).entries()) {
+    console.log(
+      `${String(i + 1).padStart(3)}. ${String(p.nome).slice(0, 46).padEnd(46)} ` +
+      `${String(p.visitas_dia).padStart(8)} vis/dia · ${p.n_vend ?? '?'} vend · ${p.categoria.nome.slice(0, 22)}`
+    )
+  }
 }

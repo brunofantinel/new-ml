@@ -203,27 +203,74 @@ export async function analisarCategoria(catId, { dias = 30, top = 12 } = {}) {
 //  - o crescimento é ponderado pelo tamanho, senão um produto de 40 visitas/dia
 //    com +200% passa na frente de um de 4.000/dia com +60%.
 const PISO_VISITAS_PRODUTO = 30
+// Visitas na metade ANTIGA da janela necessárias para o percentual significar
+// algo. Sem esse piso, um anúncio que nasceu no meio da janela sai com
+// "+4.712.975%" — matematicamente correto e completamente inútil. Quem não
+// alcança vira "estreante": ranqueado por tamanho, sem percentual.
+const PISO_BASE_ANTIGA = 20
 
 export function montarProdutosEmAlta(categorias, { piso = PISO_VISITAS_PRODUTO } = {}) {
-  const saida = []
+  const candidatos = []
+
   for (const c of categorias) {
     for (const p of c.produtos || []) {
-      if (p.direcao !== 'subindo') continue
+      // sem nome não vira card: são os ITEM soltos, que a API não abre
+      if (!p.nome) continue
       if (p.visitas_dia < piso) continue
-      if (p.variacao == null) continue
+      if (!Array.isArray(p.serie) || p.serie.length < 4) continue
 
-      // tamanho (satura em 3.000 visitas/dia) × força do crescimento (satura
-      // em +150%). Multiplicação, não soma: precisa das duas coisas.
-      const porte = Math.min(1, Math.log10(1 + p.visitas_dia) / Math.log10(1 + 3000))
-      const forca = Math.min(1, p.variacao / 150)
-      saida.push({
+      // Recalculamos as metades a partir da MESMA série que o gráfico desenha
+      // (o `variacao` que vem da medição inclui o dia de hoje, ainda em
+      // andamento). Assim o número do card e a linha contam a mesma história.
+      const meio = Math.floor(p.serie.length / 2)
+      const antigo = p.serie.slice(0, meio).reduce((a, b) => a + b, 0)
+      const recente = p.serie.slice(meio).reduce((a, b) => a + b, 0)
+      if (recente <= antigo) continue // não está subindo
+
+      const estreante = antigo < PISO_BASE_ANTIGA
+      const variacao = estreante ? null : Math.round(((recente - antigo) / antigo) * 100)
+
+      candidatos.push({
         ...p,
+        variacao,
+        estreante,
         categoria: { id: c.id, nome: c.nome, path: c.path },
-        score: Math.round(100 * (0.55 * porte + 0.45 * forca)),
       })
     }
   }
-  return saida.sort((a, b) => b.score - a.score)
+
+  // O mesmo produto aparece no ranking da subcategoria E no da seção pai.
+  // Ficamos com a ocorrência mais específica (caminho mais longo).
+  const porId = new Map()
+  for (const p of candidatos) {
+    const antes = porId.get(p.id)
+    if (!antes || (p.categoria.path || '').length > (antes.categoria.path || '').length) {
+      porId.set(p.id, p)
+    }
+  }
+
+  const unicos = [...porId.values()]
+  const subindo = unicos.filter((p) => !p.estreante)
+  const estreantes = unicos.filter((p) => p.estreante)
+
+  // tamanho (satura em 3.000 visitas/dia) contra força do crescimento (satura
+  // em +150%). Os dois pesam: procura grande crescendo pouco vale mais que
+  // procura minúscula crescendo muito, e vice-versa.
+  const pontuar = (p) => {
+    const porte = Math.min(1, Math.log10(1 + p.visitas_dia) / Math.log10(1 + 3000))
+    const forca = Math.min(1, (p.variacao || 0) / 150)
+    return Math.round(100 * (0.55 * porte + 0.45 * forca))
+  }
+
+  return {
+    produtos: subindo
+      .map((p) => ({ ...p, score: pontuar(p) }))
+      .sort((a, b) => b.score - a.score || b.visitas_dia - a.visitas_dia),
+    // estreantes não têm percentual comparável: ordenamos por tamanho puro
+    estreantes: estreantes
+      .map((p) => ({ ...p, score: null }))
+      .sort((a, b) => b.visitas_dia - a.visitas_dia),
+  }
 }
 
 // --- pontuação -------------------------------------------------------------
