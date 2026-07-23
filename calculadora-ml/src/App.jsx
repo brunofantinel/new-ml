@@ -781,6 +781,10 @@ function Calculator() {
   const [dbMsg, setDbMsg] = useState(null)
   const [scanOpen, setScanOpen] = useState(false)
   const [cats, setCats] = useState([])
+  // A lista "Resultados da busca" só aparece quando a PESSOA pesquisou uma
+  // categoria pelo nome. No preenchimento automático (produto do carrossel ou
+  // do banco) a categoria já vem escolhida — a lista só polui a tela.
+  const [catsBusca, setCatsBusca] = useState(false)
   const [predicting, setPredicting] = useState(false)
   const [comp, setComp] = useState(null)
   const [compIdx, setCompIdx] = useState(0) // qual candidato "é o seu produto"
@@ -823,7 +827,7 @@ function Calculator() {
   // pra a tela nunca misturar dados de dois produtos.
   function limparResultados() {
     setComp(null); setCompIdx(0)
-    setCats([])
+    setCats([]); setCatsBusca(false)
     setRes(null); setErr(null)
     setAnuncios({ loading: false, data: null })
     setTendencia({ loading: false, data: null })
@@ -855,7 +859,10 @@ function Calculator() {
         list = [{ category_id: compD.category_id, category_name: compD.category_name || 'mesma do concorrente', category_path: compD.category_path || '', source: 'produto' }, ...list].slice(0, 3)
       }
       setComp(compD)
+      // guardamos as sugestões (o caminho da categoria escolhida sai daqui),
+      // mas sem mostrar a lista: isso aqui é preenchimento automático
       setCats(list)
+      setCatsBusca(false)
       // o 1º candidato já vem selecionado no carrossel — puxa o pacote dele
       const cand0 = compD?.candidatos?.[0] || (compD?.matched ? compD : null)
       if (cand0) puxarPacoteMl(cand0)
@@ -868,6 +875,7 @@ function Calculator() {
       }
     } catch {
       setCats([])
+      setCatsBusca(false)
       setComp(null)
     }
     setPredicting(false)
@@ -891,18 +899,20 @@ function Calculator() {
     clearTimeout(catTimer.current)
     const t = v.trim()
 
-    if (!t) { setCats([]); setF((p) => ({ ...p, categoryId: '', categoryName: '' })); return }
-    if (ehIdMlb(t)) { setCats([]); setF((p) => ({ ...p, categoryId: t, categoryName: '' })); return }
+    if (!t) { setCats([]); setCatsBusca(false); setF((p) => ({ ...p, categoryId: '', categoryName: '' })); return }
+    if (ehIdMlb(t)) { setCats([]); setCatsBusca(false); setF((p) => ({ ...p, categoryId: t, categoryName: '' })); return }
 
     setF((p) => ({ ...p, categoryId: '', categoryName: '' }))
-    if (t.length < 3) { setCats([]); return }
+    if (t.length < 3) { setCats([]); setCatsBusca(false); return }
     catTimer.current = setTimeout(async () => {
       setBuscandoCat(true)
       try {
         const d = await fetch('/api/buscar-categoria?q=' + encodeURIComponent(t)).then((r) => r.json())
         setCats(Array.isArray(d) ? d : [])
+        setCatsBusca(true) // foi a pessoa que pesquisou: pode mostrar a lista
       } catch {
         setCats([])
+        setCatsBusca(false)
       }
       setBuscandoCat(false)
     }, 350)
@@ -1352,7 +1362,7 @@ function Calculator() {
             )}
 
             {/* ── Resultados da busca: lista de categorias (nó 2484:3198) ── */}
-            {cats.length > 0 && (
+            {catsBusca && cats.length > 0 && (
               <>
                 <div className="res-title">
                   <p className="t">Resultados da busca</p>
