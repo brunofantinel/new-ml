@@ -292,11 +292,10 @@ button.ghost {
 }
 
 /* ===== card-busca-categoria (nó 2480:3117) ============================== */
-/* Vive DENTRO do card do passo 2, então usa o gradiente interno (mesmo
-   tratamento do .lookup-box) — com o gradiente externo do design ele sumiria
-   sobre o card que o contém. */
+/* Card próprio, logo acima do passo 2 — usa o gradiente externo, como no
+   arquivo do Figma. */
 .cat-search {
-  background: var(--grad-card-inner);
+  background: var(--grad-card);
   border: var(--bw-thin) solid var(--c-line);
   border-radius: var(--r-2xl);
   padding: var(--sp-10);
