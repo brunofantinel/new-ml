@@ -8,3 +8,6 @@ dist/
 .env
 .tokens.json
 .user-token.json
+
+# fotos diarias do ranking "Em alta" (dados gerados)
+dados/

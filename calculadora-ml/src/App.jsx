@@ -598,7 +598,12 @@ function EmAlta({ onPesquisar }) {
               🏆 Mais vendidos {dados.categoria?.nome ? `em ${dados.categoria.nome}` : ''}
               <span className="pill">{itens.length} posições</span>
             </h2>
-            {dados.categoria?.path && <div className="hint" style={{ marginBottom: 12 }}>{dados.categoria.path}</div>}
+            {dados.categoria?.path && <div className="hint" style={{ marginBottom: 4 }}>{dados.categoria.path}</div>}
+            <div className="hint" style={{ marginBottom: 12 }}>
+              {dados.historico?.comparado_com
+                ? <>Movimento no ranking comparado com <b>{dados.historico.comparado_com.split('-').reverse().join('/')}</b>. Visitas dos últimos {dados.historico.janela_visitas} dias.</>
+                : <>O Mercado Livre não publica histórico — <b>eu começo a guardar hoje</b>. Amanhã esta tela já mostra quem subiu e quem caiu. Visitas dos últimos {dados.historico?.janela_visitas || 30} dias.</>}
+            </div>
             <div className="alta-grid">
               {itens.map((it) => (
                 <div key={`${it.tipo}-${it.id}`} className="alta-card">
@@ -621,6 +626,38 @@ function EmAlta({ onPesquisar }) {
                         </span>
                       )}
                     </div>
+                    {/* quanto vende (acumulado) e se está esquentando (agora) */}
+                    {(it.avaliacoes != null || it.demanda) && (
+                      <div className="alta-sinais">
+                        {it.avaliacoes != null && (
+                          <span className="alta-sinal" title="Só quem comprou avalia — é um piso de quantas vendas o produto já teve.">
+                            🛒 <b>{it.avaliacoes.toLocaleString('pt-BR')}</b> avaliações
+                            {it.nota != null && ` · ★${String(it.nota).replace('.', ',')}`}
+                          </span>
+                        )}
+                        {it.demanda && (
+                          <span className={'alta-sinal ' + it.demanda.direcao.replace(' ', '-')}>
+                            {{ subindo: '📈', caindo: '📉', estavel: '➖' }[it.demanda.direcao] || '·'}{' '}
+                            <b>{it.demanda.visitas_dia.toLocaleString('pt-BR')}</b> visitas/dia
+                            {it.demanda.direcao === 'subindo' && ` · subindo${it.demanda.variacao != null ? ` +${it.demanda.variacao}%` : ''}`}
+                            {it.demanda.direcao === 'caindo' && ` · caindo ${it.demanda.variacao}%`}
+                            {it.demanda.direcao === 'estavel' && ' · estável'}
+                            {it.demanda.direcao === 'pouco movimento' && ' · pouco movimento'}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {it.movimento && (
+                      <div className={'alta-mov' + (it.movimento.novo ? ' novo' : it.movimento.delta > 0 ? ' subiu' : it.movimento.delta < 0 ? ' caiu' : '')}>
+                        {it.movimento.novo
+                          ? '✨ novo no ranking'
+                          : it.movimento.delta > 0
+                            ? `▲ subiu ${it.movimento.delta} ${it.movimento.delta === 1 ? 'posição' : 'posições'} (era #${it.movimento.antes})`
+                            : it.movimento.delta < 0
+                              ? `▼ caiu ${-it.movimento.delta} ${it.movimento.delta === -1 ? 'posição' : 'posições'} (era #${it.movimento.antes})`
+                              : '= mesma posição'}
+                      </div>
+                    )}
                     {it.oficiais > 0 && <div className="alta-alerta">⚠ {it.oficiais} loja oficial vendendo</div>}
                     {!it.catalogo && !it.sem_dados && <div className="alta-tag">anúncio próprio de vendedor</div>}
                     <div className="alta-acoes">
@@ -641,7 +678,9 @@ function EmAlta({ onPesquisar }) {
 
       <footer>
         Ranking de mais vendidos publicado pelo próprio Mercado Livre, buscado na hora (guardado por 1 hora).
-        Ele não conhece o seu custo: produto em alta com muitos vendedores costuma ser armadilha pra conta nova.
+        A quantidade vendida por anúncio o ML não abre pra ninguém: <b>avaliações</b> são o piso de quantas vendas
+        o produto já teve (só quem compra avalia) e <b>visitas/dia</b> mostram se está esquentando ou esfriando agora.
+        O ranking não conhece o seu custo: produto em alta com muitos vendedores costuma ser armadilha pra conta nova.
       </footer>
     </>
   )

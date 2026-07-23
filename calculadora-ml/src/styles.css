@@ -813,6 +813,19 @@ button.ghost {
 .alta-conc { font-size: var(--fs-11); color: var(--c-text-muted); }
 .alta-conc.pouco { color: var(--c-green-600); font-weight: var(--fw-bold); }
 .alta-conc.muito { color: var(--c-danger); font-weight: var(--fw-bold); }
+.alta-sinais { display: flex; flex-direction: column; gap: 2px; }
+.alta-sinal { font-size: var(--fs-11); color: var(--c-text-muted); }
+.alta-sinal b { color: var(--c-teal-900); font-weight: var(--fw-bold); }
+.alta-sinal.subindo, .alta-sinal.subindo b { color: var(--c-green-600); }
+.alta-sinal.caindo, .alta-sinal.caindo b { color: var(--c-danger); }
+.alta-mov {
+  font-size: var(--fs-11);
+  font-weight: var(--fw-bold);
+  color: var(--c-text-muted);
+}
+.alta-mov.subiu { color: var(--c-green-600); }
+.alta-mov.caiu { color: var(--c-danger); }
+.alta-mov.novo { color: var(--c-warn-accent); }
 .alta-alerta { font-size: var(--fs-11); color: var(--c-warn-text); font-weight: var(--fw-semibold); }
 .alta-tag { font-size: var(--fs-11); color: var(--c-text-faint); }
 .alta-acoes {
