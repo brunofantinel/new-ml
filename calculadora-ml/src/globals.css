@@ -1,0 +1,182 @@
+/* =============================================================================
+   GLOBALS — design tokens da calculadora
+   Extraídos do Figma: "Sem título" · nó 2474:2442 (scrollable-body)
+   https://www.figma.com/design/4WU7YjrnlAPvUNQ5Xyrrmq/?node-id=2474-2442
+
+   Este arquivo NÃO estiliza componente nenhum: só declara os tokens.
+   Quem monta os componentes é o styles.css, sempre consumindo daqui.
+   Regra: nenhum valor cru (#hex, px de sombra, raio) fora deste arquivo.
+   ============================================================================= */
+
+:root {
+  /* ---------------------------------------------------------------------
+     1. CORES — paleta base
+     --------------------------------------------------------------------- */
+
+  /* Verdes da marca */
+  --c-teal-900: #0b4f49;   /* títulos, botões primários, valores fortes */
+  --c-teal-700: #0e5f58;   /* badges de passo, links, bordas de ação */
+  --c-teal-050: #e9f7ec;   /* fundo de sucesso / chip verde */
+  --c-teal-200: #c6ecd0;   /* borda de sucesso */
+  --c-green-800: #1b5e20;  /* texto sobre fundo de sucesso */
+  --c-green-600: #2e7d32;  /* borda/realce do item selecionado */
+
+  /* Neutros quentes */
+  --c-line: #e5e0d4;       /* borda padrão de cards, inputs e divisores */
+  --c-surface: #fbfaf7;    /* superfície neutra (thumbs, linha de resumo) */
+  --c-text-muted: #5e5a54; /* texto secundário */
+  --c-text-faint: #8c867e; /* placeholder */
+  --c-text-gray: #5b5b5b;  /* legenda de divisor */
+  --c-ink: #212121;        /* texto neutro escuro */
+  --c-white: #ffffff;
+
+  /* Alertas / estados */
+  --c-warn-bg: #fdf6df;
+  --c-warn-text: #7f5f1b;
+  --c-danger-bg: #fdf2f2;
+  --c-danger: #c53030;
+  --c-draft-bg: #fef08a;
+  --c-draft-line: #eab308;
+  --c-draft-text: #a16207;
+
+  /* Termômetro de procura */
+  --c-demand-900: #13387b;
+  --c-demand-700: #1d3d77;
+
+  /* Segmented control (chips-row) */
+  --c-segment-track: #8e8e93;      /* variável "Cor" do Figma */
+  --c-segment-on-from: #5cf777;
+  --c-segment-on-to: #0ebc29;
+
+  /* Fundo do app.
+     OBS: a variável "backgroud-light" do Figma voltou vazia pelo MCP, então
+     este é o único valor da paleta que não veio do arquivo. Trocar aqui muda
+     o app inteiro. */
+  --c-app-bg: #f4f2ea;
+
+  /* Medalhas de reputação do Mercado Livre.
+     São as cores do termômetro OFICIAL do ML (verde → vermelho), não da nossa
+     marca — ficam separadas da paleta acima justamente por isso. */
+  --c-ml-green: #00a650;
+  --c-ml-light-green: #7dd956;
+  --c-ml-yellow: #e6b800;
+  --c-ml-orange: #ff7733;
+  --c-ml-red: #e64545;
+  --c-ml-none: #bbbbbb;
+
+  /* Leitor de código de barras (overlay de câmera em tela cheia) */
+  --c-scan-backdrop: rgba(0, 0, 0, .92);
+  --c-scan-mask: rgba(0, 0, 0, .45);
+  --c-scan-frame: #22c55e;
+  --c-scan-laser: rgba(239, 68, 68, .9);
+  --c-scan-error: #fca5a5;
+  --c-scan-help: #cbd5e1;
+  --c-black: #000000;
+
+  /* ---------------------------------------------------------------------
+     2. GRADIENTES
+     --------------------------------------------------------------------- */
+  --grad-card: linear-gradient(90deg, #cacaca 0%, #818181 100%);       /* card externo */
+  --grad-card-inner: linear-gradient(90deg, #dbdbdb 0%, #7b7b7b 100%); /* bloco interno */
+  --grad-segment-on: linear-gradient(90deg, var(--c-segment-on-from) 0%, var(--c-segment-on-to) 100%);
+
+  /* ---------------------------------------------------------------------
+     3. SOMBRAS
+     Os nomes espelham os estilos de efeito do Figma.
+     --------------------------------------------------------------------- */
+  --shadow-card: drop-shadow(0 8px 11px rgba(0, 0, 0, .3));            /* cards */
+  --sombra-card-light: 0 8px 22px 0 rgba(0, 0, 0, .3);                 /* estilo "sombra-card-light" */
+  --shadow-soft: 0 4px 12px 0 rgba(0, 0, 0, .06);                      /* card do termômetro */
+  --shadow-cta: drop-shadow(0 8px 8px rgba(11, 79, 73, .18));          /* botão calcular */
+  --shadow-segment-track: drop-shadow(0 4px 2px rgba(0, 0, 0, .82));   /* trilho do segmented */
+  --shadow-segment-on:
+    drop-shadow(0 2px 2px rgba(0, 0, 0, .12))
+    drop-shadow(0 6px 8px rgba(0, 0, 0, .22));                          /* chip ativo */
+  --shadow-segment-on-inset:
+    inset 0 -1px 2px 0 rgba(0, 0, 0, .1),
+    inset 0 1px 1px 0 rgba(255, 255, 255, .6);
+  /* estilo "botao-3d" do Figma */
+  --shadow-3d:
+    0 6px 16px -2px rgba(0, 0, 0, .22),
+    0 2px 4px 0 rgba(0, 0, 0, .12),
+    inset 0 1px 1px 0 rgba(255, 255, 255, .6),
+    inset 0 -1px 2px 0 rgba(0, 0, 0, .1);
+  --blur-3d: 16px;
+
+  /* ---------------------------------------------------------------------
+     4. RAIOS
+     --------------------------------------------------------------------- */
+  --r-xs: 6px;
+  --r-sm: 8px;
+  --r-md: 10px;
+  --r-lg: 12px;
+  --r-xl: 14px;
+  --r-2xl: 16px;
+  --r-pill: 20px;
+
+  /* ---------------------------------------------------------------------
+     5. ESPAÇAMENTO
+     --------------------------------------------------------------------- */
+  --sp-1: 4px;
+  --sp-2: 6px;
+  --sp-3: 8px;
+  --sp-4: 10px;
+  --sp-5: 12px;
+  --sp-6: 14px;
+  --sp-7: 16px;
+  --sp-8: 18px;
+  --sp-9: 20px;
+  --sp-10: 24px;
+  --sp-12: 32px;
+
+  /* ---------------------------------------------------------------------
+     6. TIPOGRAFIA
+     --------------------------------------------------------------------- */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+  --fw-extrabold: 800;
+
+  --fs-9: 9px;
+  --fs-10: 10px;
+  --fs-11: 11px;
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-14: 14px;
+  --fs-15: 15px;
+  --fs-16: 16px;
+  --fs-18: 18px;
+  --fs-20: 20px;
+  --fs-22: 22px;
+  --fs-28: 28px;
+  --fs-36: 36px;
+
+  --lh-tight: 1.2;
+  --lh-snug: 1.4;
+  --lh-normal: 1.5;
+
+  /* ---------------------------------------------------------------------
+     7. MEDIDAS DE COMPONENTE
+     Alturas e bordas que se repetem no design.
+     --------------------------------------------------------------------- */
+  --h-input: 48px;        /* input-box */
+  --h-input-sm: 44px;     /* campos de dimensão e botões secundários */
+  --h-btn: 44px;
+  --h-btn-cta: 58px;      /* CALCULAR VALORES */
+  --h-btn-wide: 48px;     /* Preparar anúncio */
+  --h-segment: 44px;      /* trilho do segmented */
+  --h-segment-on: 38px;   /* chip ativo */
+  --h-segment-off: 32px;  /* chip inativo */
+  --size-badge: 26px;     /* badge do número do passo */
+  --size-thumb: 36px;
+  --size-thumb-lg: 64px;
+
+  --bw-thin: 1px;
+  --bw-thick: 1.5px;
+
+  --w-content: 394px;     /* largura do card no Figma (vira max-width) */
+}

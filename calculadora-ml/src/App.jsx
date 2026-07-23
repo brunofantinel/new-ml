@@ -42,13 +42,13 @@ const pct = (v) => (v == null ? '—' : (v < 0 ? '-' : '') + Math.abs(v * 100).t
 
 // Nível de reputação do vendedor no Mercado Livre (termômetro verde→vermelho).
 const NIVEL = {
-  '5_green': { txt: 'Excelente', cor: '#00a650' },
-  '4_light_green': { txt: 'Bom', cor: '#7dd956' },
-  '3_yellow': { txt: 'Regular', cor: '#e6b800' },
-  '2_orange': { txt: 'Ruim', cor: '#ff7733' },
-  '1_red': { txt: 'Ruim', cor: '#e64545' },
+  '5_green': { txt: 'Excelente', cor: 'var(--c-ml-green)' },
+  '4_light_green': { txt: 'Bom', cor: 'var(--c-ml-light-green)' },
+  '3_yellow': { txt: 'Regular', cor: 'var(--c-ml-yellow)' },
+  '2_orange': { txt: 'Ruim', cor: 'var(--c-ml-orange)' },
+  '1_red': { txt: 'Ruim', cor: 'var(--c-ml-red)' },
 }
-const nivelInfo = (lvl) => NIVEL[lvl] || { txt: 'Novo / sem histórico', cor: '#bbb' }
+const nivelInfo = (lvl) => NIVEL[lvl] || { txt: 'Novo / sem histórico', cor: 'var(--c-ml-none)' }
 
 // Imposto da empresa (Lucro Presumido, comércio) — o app já desconta sozinho.
 // Federal sobre a venda: PIS 0,65 + COFINS 3 + IRPJ 1,2 + CSLL 1,08 = 5,93%.
@@ -717,27 +717,27 @@ function ScannerModal({ onDetect, onClose }) {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.92)', zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ color: '#fff', marginBottom: 10, fontWeight: 700, textAlign: 'center' }}>Centralize o código na faixa verde</div>
-      <div style={{ position: 'relative', width: '100%', maxWidth: 460, borderRadius: 12, overflow: 'hidden' }}>
-        <video ref={videoRef} style={{ width: '100%', aspectRatio: '3/4', objectFit: 'cover', background: '#000', display: 'block' }} muted playsInline />
+    <div className="scan-overlay">
+      <div className="scan-title">Centralize o código na faixa verde</div>
+      <div className="scan-stage">
+        <video ref={videoRef} muted playsInline />
         {/* quadro de mira */}
-        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-          <div style={{ width: '88%', height: '30%', border: '3px solid #22c55e', borderRadius: 12, boxShadow: '0 0 0 2000px rgba(0,0,0,.45)' }}>
-            <div style={{ position: 'relative', top: '50%', height: 2, background: 'rgba(239,68,68,.9)' }} />
+        <div className="scan-aim">
+          <div className="scan-frame">
+            <div className="scan-laser" />
           </div>
         </div>
       </div>
-      {err && <div style={{ color: '#fca5a5', marginTop: 12, maxWidth: 460, textAlign: 'center' }}>{err}</div>}
-      <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+      {err && <div className="scan-err">{err}</div>}
+      <div className="scan-actions">
         {torchOk && (
-          <button className="ghost" onClick={toggleTorch} style={{ color: '#fff', borderColor: '#fff' }}>
+          <button className="ghost on-dark" onClick={toggleTorch}>
             {torchOn ? '🔦 Apagar' : '🔦 Lanterna'}
           </button>
         )}
         <button className="primary" onClick={onClose}>Fechar</button>
       </div>
-      <div style={{ color: '#cbd5e1', marginTop: 10, fontSize: 12.5, textAlign: 'center', maxWidth: 460 }}>
+      <div className="scan-help">
         Aproxime até o código preencher a faixa, com boa luz. Segure firme por 1–2 s.
       </div>
     </div>
@@ -1165,11 +1165,10 @@ function Calculator() {
                           return (
                             <button
                               key={cand.catalog_id}
-                              className="cat-opt"
+                              className={'cat-opt row' + (sel ? ' on' : '')}
                               onClick={() => escolherCandidato(i)}
-                              style={{ display: 'flex', gap: 10, alignItems: 'center', textAlign: 'left', border: sel ? '2px solid #16a34a' : '1px solid #d1d5db', background: sel ? '#f0fdf4' : '#fff' }}
                             >
-                              {cand.thumbnail && <img src={cand.thumbnail} alt="" style={{ width: 42, height: 42, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />}
+                              {cand.thumbnail && <img className="cat-thumb" src={cand.thumbnail} alt="" />}
                               <span style={{ flex: 1 }}>
                                 {sel ? '✓ ' : ''}<b>{cand.name}</b>
                                 <div className="hint">{money(cand.price)}{cand.n_vend ? ` · ${cand.n_vend} vendendo` : ''}{cand.category_name ? ` · ${cand.category_name}` : ''}</div>
@@ -1211,13 +1210,8 @@ function Calculator() {
                 return (
                   <button
                     key={c.category_id}
-                    className="cat-opt"
+                    className={'cat-opt' + (sel ? ' on' : '')}
                     onClick={() => pickCat(c)}
-                    style={{
-                      display: 'block', width: '100%', textAlign: 'left', marginBottom: 6,
-                      border: sel ? '2px solid #16a34a' : '1px solid #d1d5db',
-                      background: sel ? '#f0fdf4' : '#fff',
-                    }}
                   >
                     <div>
                       {sel ? '✓ ' : ''}<b>{c.category_name}</b> — <code>{c.category_id}</code>
@@ -1243,9 +1237,19 @@ function Calculator() {
             </div>
             <div className="field">
               <label>Tipo de anúncio</label>
-              <select value={f.listingType} onChange={upd('listingType')}>
-                {LISTING_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-              </select>
+              {/* segmented control (chips-row do design) */}
+              <div className="segmented">
+                {LISTING_TYPES.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    className={f.listingType === t.id ? 'on' : ''}
+                    onClick={() => setF({ ...f, listingType: t.id })}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -1268,39 +1272,44 @@ function Calculator() {
               <label>Peso da encomenda pronta (kg)</label>
               <input type="number" step="0.01" value={f.pesoKg} onChange={upd('pesoKg')} />
             </div>
+            {/* dimensions-row do design: cada medida com seu próprio rótulo */}
             <div className="field">
-              <label>Medidas da caixa em cm (altura × largura × comprimento)</label>
               <div className="row3">
-                <input type="number" placeholder="Alt." value={f.alt} onChange={upd('alt')} />
-                <input type="number" placeholder="Larg." value={f.larg} onChange={upd('larg')} />
-                <input type="number" placeholder="Comp." value={f.comp} onChange={upd('comp')} />
+                <div className="field">
+                  <label className="plain">Altura (cm)</label>
+                  <input type="number" placeholder="0" value={f.alt} onChange={upd('alt')} />
+                </div>
+                <div className="field">
+                  <label className="plain">Largura (cm)</label>
+                  <input type="number" placeholder="0" value={f.larg} onChange={upd('larg')} />
+                </div>
+                <div className="field">
+                  <label className="plain">Comprimento (cm)</label>
+                  <input type="number" placeholder="0" value={f.comp} onChange={upd('comp')} />
+                </div>
               </div>
               <div className="hint">Sem as medidas eu calculo comissão e custo fixo, mas não consigo o frete real.</div>
             </div>
 
             {/* Peso cobrável e limites — recalculado enquanto você digita. */}
-            <div style={{
-              marginTop: 4, padding: '10px 12px', borderRadius: 10,
-              border: '1px solid ' + (limites.ok ? '#e2e8f0' : '#fecaca'),
-              background: limites.ok ? '#f8fafc' : '#fef2f2',
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+            <div className={'pack-box' + (limites.ok ? '' : ' bad')}>
+              <div className="pack-row">
                 <span>Peso cobrável (o maior entre real e volumétrico)</span>
                 <b>{pesoCob > 0 ? `${pesoCob.toFixed(2)} kg` : '—'}</b>
               </div>
-              <div className="hint" style={{ marginTop: 2 }}>
+              <div className="hint">
                 real {pesoRealKg ? `${pesoRealKg} kg` : '—'} · volumétrico{' '}
                 {pesoVol > 0 ? `${pesoVol.toFixed(2)} kg` : '— (preencha as medidas)'}
                 {pesoVol > 0 && ' (A × L × C ÷ 6000)'}
               </div>
               {limites.tem_medidas && (
-                <div className="hint" style={{ marginTop: 4 }}>
-                  soma dos lados <b style={{ color: limites.excedeu.soma ? '#b91c1c' : 'inherit' }}>{limites.soma_cm} cm</b>
-                  {' · '}maior lado <b style={{ color: limites.excedeu.lado ? '#b91c1c' : 'inherit' }}>{limites.maior_lado_cm} cm</b>
+                <div className="hint">
+                  soma dos lados <b className={limites.excedeu.soma ? 'over' : undefined}>{limites.soma_cm} cm</b>
+                  {' · '}maior lado <b className={limites.excedeu.lado ? 'over' : undefined}>{limites.maior_lado_cm} cm</b>
                 </div>
               )}
               {!limites.ok && (
-                <div style={{ marginTop: 8, fontSize: 12.5, fontWeight: 600, color: '#b91c1c' }}>
+                <div className="pack-alerts">
                   {limites.mensagens.map((m, i) => <div key={i}>⚠ {m}</div>)}
                 </div>
               )}
@@ -1355,30 +1364,25 @@ function Calculator() {
               Estimativa com {pesoCob > 0 ? `${pesoCob.toFixed(2)} kg cobráveis` : 'o peso informado'} e preço de {money(preco)}.
               Mostra o custo e se o pacote cabe nos limites — não indica o que está liberado pra sua conta.
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div className="mod-list">
               {comparativo.map((c) => {
                 const sel = c.modalidade === f.logisticType
                 const cabe = c.limites.ok
                 return (
                   <button
                     key={c.modalidade}
-                    className="chip"
+                    type="button"
+                    className={'mod-item' + (sel ? ' on' : '') + (cabe ? '' : ' over')}
                     onClick={() => setF({ ...f, logisticType: c.modalidade })}
-                    style={{
-                      textAlign: 'left', padding: '10px 12px', borderRadius: 10,
-                      border: '1px solid ' + (sel ? '#2563eb' : cabe ? '#e2e8f0' : '#fecaca'),
-                      background: sel ? '#eff6ff' : cabe ? '#fff' : '#fef2f2',
-                      cursor: 'pointer',
-                    }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontWeight: 700 }}>{sel ? '✓ ' : ''}{c.modalidade_label}</span>
-                      <span style={{ fontWeight: 800, color: c.custo_total > 0 ? '#b91c1c' : '#15803d' }}>
+                    <div className="mod-head">
+                      <span className="mod-name">{sel ? '✓ ' : ''}{c.modalidade_label}</span>
+                      <span className={'mod-cost' + (c.custo_total > 0 ? '' : ' free')}>
                         {c.custo_total === 0 ? 'R$ 0,00' : money(c.custo_total)}
                       </span>
                     </div>
-                    <div className="hint" style={{ marginTop: 3 }}>{c.regra}</div>
-                    <div className="hint" style={{ marginTop: 2 }}>
+                    <div className="hint">{c.regra}</div>
+                    <div className="hint">
                       tarifa cheia {money(c.tarifa_base)}
                       {/* o desconto de reputação incide na tabela (tradicional e Full).
                           No Flex o ML paga um % da tarifa cheia — por isso não aparece aqui. */}
@@ -1390,7 +1394,7 @@ function Calculator() {
                       {c.custo_extra > 0 && ` · + ${money(c.custo_extra)} de operação`}
                     </div>
                     {!cabe && (
-                      <div style={{ marginTop: 4, fontSize: 12, fontWeight: 600, color: '#b91c1c' }}>
+                      <div className="mod-warn">
                         ⚠ não cabe nos limites ({textoLimites(c.limites.limites)})
                       </div>
                     )}
@@ -1414,31 +1418,22 @@ function Calculator() {
               <>
                 <div className={'verdict ' + (lucro >= 0 ? 'good' : 'bad')}>
                   <div className="lbl">Sobra pra você (antes do ICMS estadual)</div>
-                  <div className="big">{money(lucro)}</div>
-                  <div className="pct">{lucroPct.toFixed(1)}% do preço de venda</div>
+                  {/* valor grande + pílula do percentual na mesma linha (result-hero-card) */}
+                  <div className="row">
+                    <div className="big">{money(lucro)}</div>
+                    <div className="pct">{lucroPct.toFixed(1)}%</div>
+                  </div>
                 </div>
-                {aval && (() => {
-                  const c = {
-                    good: { bg: '#dcfce7', bd: '#16a34a', fg: '#14532d' },
-                    ok: { bg: '#dbeafe', bd: '#2563eb', fg: '#1e3a8a' },
-                    warn: { bg: '#fef3c7', bd: '#d97706', fg: '#7c2d12' },
-                    bad: { bg: '#fee2e2', bd: '#dc2626', fg: '#7f1d1d' },
-                  }[aval.tone] || { bg: '#f1f5f9', bd: '#64748b', fg: '#0f172a' }
-                  return (
-                    <div style={{
-                      margin: '14px 0 4px', padding: '16px 18px', borderRadius: 14,
-                      background: c.bg, border: `2px solid ${c.bd}`, borderLeft: `10px solid ${c.bd}`,
-                      boxShadow: '0 2px 10px rgba(0,0,0,.08)',
-                    }}>
-                      <div style={{ fontSize: 19, fontWeight: 800, color: c.fg, lineHeight: 1.2 }}>{aval.titulo}</div>
-                      <div style={{ marginTop: 8, fontSize: 15, fontWeight: 600, color: c.fg }}>{aval.msg}</div>
-                      <div style={{ marginTop: 10, fontSize: 12.5, color: c.fg, opacity: .85 }}>
-                        No ML: menor <b>{money(anuncios.data.preco.min)}</b> · média <b>{money(anuncios.data.preco.mediana)}</b> · maior <b>{money(anuncios.data.preco.max)}</b>
-                        {anuncios.data.n_vendedores ? ` · ${anuncios.data.n_vendedores} anúncio${anuncios.data.n_vendedores === 1 ? '' : 's'}` : ''}
-                      </div>
+                {aval && (
+                  <div className={'aval ' + (aval.tone || 'ok')}>
+                    <div className="t">{aval.titulo}</div>
+                    <div className="m">{aval.msg}</div>
+                    <div className="d">
+                      No ML: menor <b>{money(anuncios.data.preco.min)}</b> · média <b>{money(anuncios.data.preco.mediana)}</b> · maior <b>{money(anuncios.data.preco.max)}</b>
+                      {anuncios.data.n_vendedores ? ` · ${anuncios.data.n_vendedores} anúncio${anuncios.data.n_vendedores === 1 ? '' : 's'}` : ''}
                     </div>
-                  )
-                })()}
+                  </div>
+                )}
                 {res && !mercado && anuncios.loading && (
                   <div className="hint" style={{ margin: '10px 0 0' }}>Comparando com os anúncios do ML…</div>
                 )}
@@ -1489,21 +1484,17 @@ function Calculator() {
                   <div className="brow sub"><span className="k">↳ o custo do banco (“último custo”) já inclui os impostos da compra. Falta só o ICMS, que muda por estado — veja a tabela abaixo.</span><span className="v" /></div>
                 </div>
 
-                <div style={{ marginTop: 16 }}>
-                  <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 4 }}>Sobra final por estado do comprador (já com ICMS)</div>
+                <div>
+                  <div className="sec-title">Sobra final por estado do comprador (já com ICMS)</div>
                   <div className="hint" style={{ marginBottom: 10 }}>
                     O ICMS depende do estado de destino da venda. Abaixo, o que realmente sobra em cada estado — comissão, frete e imposto federal já descontados. O número ao lado da sigla é a alíquota de ICMS usada.
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 6 }}>
+                  <div className="uf-grid">
                     {sobraPorUF.map((s) => (
-                      <div key={s.uf} style={{
-                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                        padding: '8px 10px', borderRadius: 10,
-                        border: '1px solid ' + (s.sobra >= 0 ? '#bbf7d0' : '#fecaca'),
-                        background: s.sobra >= 0 ? '#f0fdf4' : '#fef2f2',
-                      }}>
-                        <span style={{ fontWeight: 700 }}>{s.uf}<span style={{ fontWeight: 400, opacity: .55, fontSize: 11, marginLeft: 4 }}>{s.icmsPct}%</span></span>
-                        <span style={{ fontWeight: 800, color: s.sobra >= 0 ? '#15803d' : '#b91c1c' }}>{money(s.sobra)}</span>
+                      <div key={s.uf} className={'uf-tile' + (s.sobra >= 0 ? '' : ' neg')}>
+                        <span className="uf">{s.uf}</span>
+                        <span className="icms">{s.icmsPct}%</span>
+                        <span className="val">{money(s.sobra)}</span>
                       </div>
                     ))}
                   </div>
@@ -1541,7 +1532,7 @@ function Calculator() {
                 <div className="callout" style={{ margin: '0 0 12px' }}>
                   ✅ <b>Vinculado ao catálogo do ML</b> — título, fotos e atributos vêm prontos do produto no Mercado Livre.
                   {anuncioPrep.data.catalogUrl && (
-                    <> <a href={anuncioPrep.data.catalogUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb' }}>ver produto ▸</a></>
+                    <> <a href={anuncioPrep.data.catalogUrl} target="_blank" rel="noreferrer">ver produto ▸</a></>
                   )}
                 </div>
               ) : (
@@ -1553,7 +1544,7 @@ function Calculator() {
               {anuncioPrep.data.fotos.length > 0 && (
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
                   {anuncioPrep.data.fotos.slice(0, 6).map((u, i) => (
-                    <img key={i} src={u} alt="" style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 8, border: '1px solid #e5e7eb' }} />
+                    <img key={i} className="draft-photo" src={u} alt="" />
                   ))}
                 </div>
               )}
@@ -1639,42 +1630,50 @@ function Calculator() {
           {(tendencia.loading || tendencia.data) && (
             <div className="card">
               <h2>📈 Termômetro de procura <span className="pill">visitas</span></h2>
-              <div className="field" style={{ marginBottom: 12 }}>
-                <label>Janela de análise</label>
-                <select
-                  value={janelaDias}
-                  onChange={(e) => {
-                    const d = Number(e.target.value)
-                    setJanelaDias(d)
-                    const ids = (anuncios.data?.anuncios || []).map((a) => a.item_id).filter(Boolean)
-                    buscarTendencia(ids, d)
-                  }}
-                >
-                  <option value={30}>Últimos 30 dias</option>
-                  <option value={60}>Últimos 60 dias</option>
-                  <option value={90}>Últimos 90 dias</option>
-                </select>
+              <div className="field">
+                <label className="plain">Janela de análise</label>
+                {/* segmented control (chips-row do design) */}
+                <div className="segmented">
+                  {[30, 60, 90].map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      className={janelaDias === d ? 'on' : ''}
+                      onClick={() => {
+                        setJanelaDias(d)
+                        const ids = (anuncios.data?.anuncios || []).map((a) => a.item_id).filter(Boolean)
+                        buscarTendencia(ids, d)
+                      }}
+                    >
+                      {d} dias
+                    </button>
+                  ))}
+                </div>
               </div>
               {tendencia.loading ? (
                 <p className="spin">Medindo a procura…</p>
               ) : tendencia.data?.encontrado ? (() => {
                 const t = tendencia.data
+                // stable-demand-card do design: barra de destaque à esquerda + conteúdo
                 const c = {
-                  subindo: { bg: '#dcfce7', bd: '#16a34a', fg: '#14532d', emo: '📈', txt: 'Procura em ALTA' },
-                  caindo: { bg: '#fee2e2', bd: '#dc2626', fg: '#7f1d1d', emo: '📉', txt: 'Procura em QUEDA' },
-                  estavel: { bg: '#dbeafe', bd: '#2563eb', fg: '#1e3a8a', emo: '➖', txt: 'Procura ESTÁVEL' },
-                }[t.direcao] || { bg: '#f1f5f9', bd: '#64748b', fg: '#0f172a', emo: '➖', txt: 'Procura' }
+                  subindo: { tone: 'up', emo: '📈', txt: 'Procura em ALTA' },
+                  caindo: { tone: 'down', emo: '📉', txt: 'Procura em QUEDA' },
+                  estavel: { tone: 'flat', emo: '➖', txt: 'Procura ESTÁVEL' },
+                }[t.direcao] || { tone: 'flat', emo: '➖', txt: 'Procura' }
                 return (
-                  <div style={{ padding: '16px 18px', borderRadius: 14, background: c.bg, border: `2px solid ${c.bd}`, borderLeft: `10px solid ${c.bd}`, boxShadow: '0 2px 10px rgba(0,0,0,.08)' }}>
-                    <div style={{ fontSize: 19, fontWeight: 800, color: c.fg }}>
-                      {c.emo} {c.txt}{t.change_pct != null ? ` (${t.change_pct > 0 ? '+' : ''}${t.change_pct}%)` : ''}
-                    </div>
-                    <div style={{ marginTop: 8, fontSize: 14.5, fontWeight: 600, color: c.fg }}>
-                      Últimos {t.meia_janela} dias: <b>{t.recente}</b> visitas · {t.meia_janela} dias anteriores: <b>{t.antigo}</b>
-                    </div>
-                    <div className="hint" style={{ marginTop: 10 }}>
-                      Somado de {t.n_itens} anúncio{t.n_itens === 1 ? '' : 's'} do produto. Visita mede procura/interesse, não venda.
-                      {t.sinal_fraco ? ' ⚠️ Pouco tráfego — sinal fraco, leve como pista.' : ''}
+                  <div className={'demand-card ' + c.tone}>
+                    <div className="accent" />
+                    <div className="body">
+                      <div className="t">
+                        {c.emo} {c.txt}{t.change_pct != null ? ` (${t.change_pct > 0 ? '+' : ''}${t.change_pct}%)` : ''}
+                      </div>
+                      <div className="m">
+                        Últimos {t.meia_janela} dias: <b>{t.recente}</b> visitas · {t.meia_janela} dias anteriores: <b>{t.antigo}</b>
+                      </div>
+                      <div className="d">
+                        Somado de {t.n_itens} anúncio{t.n_itens === 1 ? '' : 's'} do produto. Visita mede procura/interesse, não venda.
+                        {t.sinal_fraco ? ' ⚠️ Pouco tráfego — sinal fraco, leve como pista.' : ''}
+                      </div>
                     </div>
                   </div>
                 )
