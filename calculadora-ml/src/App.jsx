@@ -1,4 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
+import {
+  MODALIDADES, MODALIDADE_IDS, getModalidade,
+  pesoCobravelKg, pesoVolumetricoKg, checarLimites, compararModalidades,
+} from '../server/freight.js'
 
 const money = (v) =>
   'R$ ' + (v < 0 ? '-' : '') + Math.abs(v ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -8,23 +12,31 @@ const LISTING_TYPES = [
   { id: 'gold_pro', label: 'Premium' },
 ]
 
-const LOGISTIC_TYPES = [
-  { id: 'cross_docking', label: 'Coleta', desc: 'O Mercado Livre passa no seu endereço e recolhe os pacotes já prontos e etiquetados. Bom pra quem envia bastante de uma vez.' },
-  { id: 'xd_drop_off', label: 'Agência (Places)', desc: 'Você leva os pacotes até uma agência ou ponto do Mercado Livre perto de você (Mercado Livre Places).' },
-  { id: 'drop_off', label: 'Correios / Drop off', desc: 'Você mesmo posta os pacotes nos Correios ou num ponto de entrega credenciado.' },
-  { id: 'fulfillment', label: 'Full', desc: 'Você manda seu estoque pro galpão do Mercado Livre; eles guardam, embalam e enviam por você. Entrega mais rápida e o anúncio aparece melhor, mas tem custo de armazenagem.' },
-  { id: 'self_service', label: 'Flex', desc: 'Você (ou um motoboy) entrega no mesmo dia na sua região. O Mercado Livre te paga um valor por cada entrega.' },
-]
+// As modalidades (limites de peso/medidas e regra de custo) vivem em
+// server/freight.js — mesmo código que o backend usa, pra tela e cálculo nunca
+// divergirem. Aqui só montamos a lista pro <select>.
+const LOGISTIC_TYPES = MODALIDADE_IDS.map((id) => ({
+  id,
+  label: MODALIDADES[id].label,
+  desc: MODALIDADES[id].despacho,
+}))
 
 // Desconto de frete por reputação (regra de 02/03/2026: até 70% acima de R$79).
 // Os percentuais por medalha são aproximados — confirme no seu painel do ML.
 const REPUTACOES = [
   { id: '0', label: 'Sem reputação / vermelha–laranja (sem desconto)', desc: 0 },
   { id: '0.2', label: 'Amarela (~20% de desconto)', desc: 0.2 },
-  { id: '0.4', label: 'Verde (~40% de desconto)', desc: 0.4 },
+  { id: '0.4', label: 'Verde-claro / Decola (~40% de desconto)', desc: 0.4 },
   { id: '0.55', label: 'MercadoLíder (~55% de desconto)', desc: 0.55 },
   { id: '0.7', label: 'MercadoLíder Platinum (~70% de desconto)', desc: 0.7 },
 ]
+
+// Texto curto dos limites da modalidade, pra mostrar embaixo do seletor.
+const textoLimites = (lim) => [
+  lim.pesoKg != null ? `até ${lim.pesoKg} kg` : null,
+  lim.somaCm != null ? `soma dos lados até ${lim.somaCm} cm` : null,
+  lim.maiorLadoCm != null ? `maior lado até ${lim.maiorLadoCm} cm` : null,
+].filter(Boolean).join(' · ')
 
 const pct = (v) => (v == null ? '—' : (v < 0 ? '-' : '') + Math.abs(v * 100).toFixed(1) + '%')
 
@@ -746,7 +758,10 @@ function Calculator() {
     alt: '', larg: '', comp: '',
     pesoKg: '0.3',
     freteGratis: true,
-    reputacao: '0.4', // padrão: reputação verde
+    reputacao: '0.4', // Decola = verde-claro (o % real vem da cotação da conta)
+    elegivel: true,   // produto NOVO e elegível (condição do subsídio R$19–78,99)
+    custoFull: '',    // Full: armazenagem/operação por unidade
+    custoFlex: '',    // Flex: quanto o motoboy/transportadora cobra de fato
   })
   const [produtoDb, setProdutoDb] = useState(null) // resultado ao vivo do /api/produto (agente do ERP)
   const [dbBusy, setDbBusy] = useState(false)
@@ -987,6 +1002,11 @@ function Calculator() {
       if (f.alt && f.larg && f.comp) q.set('dimensions', `${f.alt}x${f.larg}x${f.comp},${pesoG}`)
       // desconto de frete por reputação (aplicado acima de R$79)
       if (f.reputacao && f.reputacao !== '0') q.set('reputation_discount', f.reputacao)
+      // produto novo e elegível: condição pro ML cobrir o frete de R$19 a R$78,99
+      if (!f.elegivel) q.set('eligible', 'false')
+      // custos próprios da modalidade escolhida
+      if (f.logisticType === 'fulfillment' && f.custoFull) q.set('full_op_cost', f.custoFull)
+      if (f.logisticType === 'self_service' && f.custoFlex) q.set('flex_delivery_cost', f.custoFlex)
 
       const d = await fetch('/api/fees?' + q.toString()).then((r) => r.json())
       if (d.error) throw new Error(d.detail?.message || d.error)
@@ -1002,6 +1022,29 @@ function Calculator() {
 
   const preco = parseFloat(f.preco) || 0
   const custo = parseFloat(f.custo) || 0
+
+  // --- Pacote: peso cobrável e limites da modalidade (calculado ao vivo, sem
+  // precisar clicar em "Calcular" — é só peso e medidas). ---
+  const pesoRealKg = parseFloat(f.pesoKg) || 0
+  const dimsForm = {
+    alturaCm: parseFloat(f.alt) || 0,
+    larguraCm: parseFloat(f.larg) || 0,
+    comprimentoCm: parseFloat(f.comp) || 0,
+  }
+  const modalidade = getModalidade(f.logisticType)
+  const pesoVol = pesoVolumetricoKg(dimsForm.alturaCm, dimsForm.larguraCm, dimsForm.comprimentoCm)
+  const pesoCob = pesoCobravelKg(pesoRealKg, dimsForm)
+  const limites = checarLimites(f.logisticType, pesoRealKg, dimsForm)
+  // Simulação lado a lado das 5 modalidades com o MESMO pacote. Não diz o que
+  // está liberado pra conta — só o custo estimado e se cabe nos limites.
+  const comparativo = compararModalidades(preco, pesoRealKg, f.freteGratis, {
+    ...dimsForm,
+    descontoReputacao: Number(f.reputacao) || 0,
+    elegivelSubsidio: f.elegivel,
+    custoOperacaoFull: parseFloat(f.custoFull) || 0,
+    custoEntregaFlex: f.custoFlex === '' ? null : parseFloat(f.custoFlex) || 0,
+  })
+
   const comissao = res?.commission_total ?? 0
   const frete = res?.freight ?? 0
   // O "último custo" do banco já traz os impostos/custos da COMPRA embutidos.
@@ -1214,6 +1257,12 @@ function Calculator() {
                 {LOGISTIC_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
               </select>
               <div className="hint">{LOGISTIC_TYPES.find((t) => t.id === f.logisticType)?.desc}</div>
+              <div className="hint" style={{ marginTop: 4 }}>
+                <b>Limites desta modalidade:</b> {textoLimites(modalidade.limites)}
+              </div>
+              {modalidade.notas?.map((n, i) => (
+                <div key={i} className="hint" style={{ marginTop: 2 }}>• {n}</div>
+              ))}
             </div>
             <div className="field">
               <label>Peso da encomenda pronta (kg)</label>
@@ -1228,9 +1277,127 @@ function Calculator() {
               </div>
               <div className="hint">Sem as medidas eu calculo comissão e custo fixo, mas não consigo o frete real.</div>
             </div>
-            {/* Conta no programa Decola: o ML trata a loja como reputação Verde e o frete
-                grátis é sempre assumido. Por isso freteGratis e reputacao ficam fixos no
-                estado (true / '0.4') e não aparecem mais como controles na tela. */}
+
+            {/* Peso cobrável e limites — recalculado enquanto você digita. */}
+            <div style={{
+              marginTop: 4, padding: '10px 12px', borderRadius: 10,
+              border: '1px solid ' + (limites.ok ? '#e2e8f0' : '#fecaca'),
+              background: limites.ok ? '#f8fafc' : '#fef2f2',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                <span>Peso cobrável (o maior entre real e volumétrico)</span>
+                <b>{pesoCob > 0 ? `${pesoCob.toFixed(2)} kg` : '—'}</b>
+              </div>
+              <div className="hint" style={{ marginTop: 2 }}>
+                real {pesoRealKg ? `${pesoRealKg} kg` : '—'} · volumétrico{' '}
+                {pesoVol > 0 ? `${pesoVol.toFixed(2)} kg` : '— (preencha as medidas)'}
+                {pesoVol > 0 && ' (A × L × C ÷ 6000)'}
+              </div>
+              {limites.tem_medidas && (
+                <div className="hint" style={{ marginTop: 4 }}>
+                  soma dos lados <b style={{ color: limites.excedeu.soma ? '#b91c1c' : 'inherit' }}>{limites.soma_cm} cm</b>
+                  {' · '}maior lado <b style={{ color: limites.excedeu.lado ? '#b91c1c' : 'inherit' }}>{limites.maior_lado_cm} cm</b>
+                </div>
+              )}
+              {!limites.ok && (
+                <div style={{ marginTop: 8, fontSize: 12.5, fontWeight: 600, color: '#b91c1c' }}>
+                  {limites.mensagens.map((m, i) => <div key={i}>⚠ {m}</div>)}
+                </div>
+              )}
+            </div>
+
+            {/* Custos próprios de cada modalidade — a tabela de frete não cobre. */}
+            {f.logisticType === 'fulfillment' && (
+              <div className="field" style={{ marginTop: 12 }}>
+                <label>Full: armazenagem e operação por unidade (R$)</label>
+                <input type="number" step="0.01" placeholder="ex: 1.50" value={f.custoFull} onChange={upd('custoFull')} />
+                <div className="hint">
+                  O Full não é custo zero. Acima de R$79 o ML cobre 50% do frete grátis; armazenagem,
+                  operação e estoque antigo continuam na sua margem. Coloque aqui o rateio por unidade.
+                </div>
+              </div>
+            )}
+            {f.logisticType === 'self_service' && (
+              <div className="field" style={{ marginTop: 12 }}>
+                <label>Flex: quanto VOCÊ paga pela entrega (R$)</label>
+                <input type="number" step="0.01" placeholder="ex: 12.00" value={f.custoFlex} onChange={upd('custoFlex')} />
+                <div className="hint">
+                  O ML cobre 100% da <b>tarifa da plataforma</b> na faixa R$19–78,99 e ~10% acima de R$79
+                  (reputação verde) — não o que o seu motoboy cobra. A diferença é custo (ou lucro) logístico seu.
+                  Em branco, assumo que o entregador cobra o mesmo que a tarifa do ML.
+                </div>
+              </div>
+            )}
+
+            <div className="field" style={{ marginTop: 12 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input type="checkbox" checked={f.elegivel} onChange={upd('elegivel')} style={{ width: 'auto' }} />
+                Produto novo e elegível ao frete grátis do ML
+              </label>
+              <div className="hint">
+                É a condição pro Mercado Livre cobrir o frete na faixa de R$19 a R$78,99. Desmarque se o
+                produto for usado/recondicionado ou não elegível — aí o custo do envio volta pra você.
+              </div>
+            </div>
+
+            <div className="hint" style={{ marginTop: 10 }}>
+              Conta no Decola = reputação <b>verde-claro</b> (uso ~40% de desconto acima de R$79), mas isso
+              não libera todas as modalidades nem torna qualquer frete grátis. O que está disponível depende de
+              cobertura, endereço, categoria, dimensões e da liberação do ML — por isso a modalidade nunca é
+              marcada sozinha. Com o vendedor conectado, o valor vem da cotação real da conta.
+            </div>
+          </div>
+
+          {/* Comparativo: o mesmo pacote nas 5 modalidades. */}
+          <div className="card">
+            <h2>📦 O mesmo pacote em cada modalidade</h2>
+            <div className="hint" style={{ marginBottom: 10 }}>
+              Estimativa com {pesoCob > 0 ? `${pesoCob.toFixed(2)} kg cobráveis` : 'o peso informado'} e preço de {money(preco)}.
+              Mostra o custo e se o pacote cabe nos limites — não indica o que está liberado pra sua conta.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {comparativo.map((c) => {
+                const sel = c.modalidade === f.logisticType
+                const cabe = c.limites.ok
+                return (
+                  <button
+                    key={c.modalidade}
+                    className="chip"
+                    onClick={() => setF({ ...f, logisticType: c.modalidade })}
+                    style={{
+                      textAlign: 'left', padding: '10px 12px', borderRadius: 10,
+                      border: '1px solid ' + (sel ? '#2563eb' : cabe ? '#e2e8f0' : '#fecaca'),
+                      background: sel ? '#eff6ff' : cabe ? '#fff' : '#fef2f2',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontWeight: 700 }}>{sel ? '✓ ' : ''}{c.modalidade_label}</span>
+                      <span style={{ fontWeight: 800, color: c.custo_total > 0 ? '#b91c1c' : '#15803d' }}>
+                        {c.custo_total === 0 ? 'R$ 0,00' : money(c.custo_total)}
+                      </span>
+                    </div>
+                    <div className="hint" style={{ marginTop: 3 }}>{c.regra}</div>
+                    <div className="hint" style={{ marginTop: 2 }}>
+                      tarifa cheia {money(c.tarifa_base)}
+                      {/* o desconto de reputação incide na tabela (tradicional e Full).
+                          No Flex o ML paga um % da tarifa cheia — por isso não aparece aqui. */}
+                      {c.modelo !== 'flex' && c.desconto_reputacao > 0 && ` · −${Math.round(c.desconto_reputacao * 100)}% reputação`}
+                      {c.cobertura_ml_pct > 0 && (c.modelo === 'flex'
+                        ? ` · ML te paga ${money(c.recebe_do_ml)} (${Math.round(c.cobertura_ml_pct * 100)}% da tarifa)`
+                        : ` · ML cobre ${Math.round(c.cobertura_ml_pct * 100)}%`)}
+                      {c.modelo === 'flex' && ` · entrega por sua conta`}
+                      {c.custo_extra > 0 && ` · + ${money(c.custo_extra)} de operação`}
+                    </div>
+                    {!cabe && (
+                      <div style={{ marginTop: 4, fontSize: 12, fontWeight: 600, color: '#b91c1c' }}>
+                        ⚠ não cabe nos limites ({textoLimites(c.limites.limites)})
+                      </div>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
           </div>
 
           <button className="primary" onClick={calcular} disabled={busy}>
@@ -1289,17 +1456,32 @@ function Calculator() {
                     <span className="k">− Frete que sai do seu bolso{res.freight_source === 'estimate' && res.freight != null ? ' (estimado)' : ''}</span>
                     <span className="v">{res.freight == null ? '?' : '− ' + money(res.freight)}</span>
                   </div>
+                  {res.freight_detail && (
+                    <div className="brow sub"><span className="k">↳ {res.freight_detail.modalidade_label}: {res.freight_detail.regra}</span><span className="v" /></div>
+                  )}
+                  {res.freight_detail?.peso_cobravel_kg > 0 && (
+                    <div className="brow sub">
+                      <span className="k">
+                        ↳ peso cobrável {res.freight_detail.peso_cobravel_kg} kg
+                        {res.freight_detail.peso_volumetrico_kg > res.freight_detail.peso_real_kg
+                          ? ` (volumétrico — o real é ${res.freight_detail.peso_real_kg} kg)`
+                          : ' (peso real)'}
+                        {' · tarifa cheia '}{money(res.freight_detail.tarifa_base)}
+                      </span>
+                      <span className="v" />
+                    </div>
+                  )}
+                  {res.freight_detail?.modelo === 'flex' && res.freight_detail.recebe_do_ml > 0 && (
+                    <div className="brow sub"><span className="k">↳ o ML te paga {money(res.freight_detail.recebe_do_ml)} de incentivo; a entrega em si é paga por você</span><span className="v" /></div>
+                  )}
+                  {res.freight_detail?.custo_extra > 0 && (
+                    <div className="brow sub"><span className="k">↳ inclui {money(res.freight_detail.custo_extra)} de armazenagem/operação do Full</span><span className="v" /></div>
+                  )}
                   {res.freight_free_by_meli && (
-                    <div className="brow sub"><span className="k">↳ o Mercado Livre cobre 100% do frete (faixa R$19–78,99)</span><span className="v" /></div>
+                    <div className="brow sub"><span className="k">↳ o Mercado Livre confirmou que cobre o frete nesta faixa</span><span className="v" /></div>
                   )}
-                  {!res.freight_free_by_meli && res.freight_source === 'api' && res.freight > 0 && (
-                    <div className="brow sub"><span className="k">↳ frete real da sua conta no ML — já com os seus descontos</span><span className="v" /></div>
-                  )}
-                  {res.freight_source === 'estimate' && res.freight === 0 && preco >= 19 && preco < 79 && (
-                    <div className="brow sub"><span className="k">↳ faixa R$19–78,99: o Mercado Livre cobre 100% do frete</span><span className="v" /></div>
-                  )}
-                  {res.freight_source === 'estimate' && res.freight > 0 && preco >= 79 && f.reputacao !== '0' && (
-                    <div className="brow sub"><span className="k">↳ estimado com ~{Math.round(Number(f.reputacao) * 100)}% de desconto de reputação</span><span className="v" /></div>
+                  {res.freight_source === 'api' && res.freight > 0 && (
+                    <div className="brow sub"><span className="k">↳ cotação real da sua conta no ML — já com os seus descontos</span><span className="v" /></div>
                   )}
                   <div className="brow"><span className="k">− Imposto federal (Lucro Presumido {IMPOSTO_PCT}%)</span><span className="v">− {money(impostoFederal)}</span></div>
                   <div className="brow sub"><span className="k">↳ PIS, COFINS, IRPJ e CSLL sobre a venda</span><span className="v" /></div>
@@ -1328,6 +1510,17 @@ function Calculator() {
                 </div>
                 {res.percentage_fee != null && (
                   <div className="hint" style={{ marginTop: 10 }}>O Mercado Livre fica com {res.percentage_fee}% de comissão nessa categoria.</div>
+                )}
+                {res.freight_limits && !res.freight_limits.ok && (
+                  <div className="callout bad" style={{ marginTop: 12 }}>
+                    <b>Fora dos limites de {res.freight_limits.modalidade_label}:</b>
+                    {res.freight_limits.mensagens.map((m, i) => <div key={i} style={{ marginTop: 4 }}>{m}</div>)}
+                  </div>
+                )}
+                {res.freight_detail?.avisos?.length > 0 && (
+                  <div className="hint" style={{ marginTop: 10 }}>
+                    {res.freight_detail.avisos.map((a, i) => <div key={i} style={{ marginTop: 2 }}>• {a}</div>)}
+                  </div>
                 )}
                 {res.freight == null && (
                   <div className="callout warn" style={{ marginTop: 12 }}>

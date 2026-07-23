@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { estimarFrete } from './freight.js'
+import { estimarFreteDetalhado, checarLimites, getModalidade } from './freight.js'
 
 const API = 'https://api.mercadolibre.com'
 const AUTH = 'https://auth.mercadolivre.com.br'
@@ -197,27 +197,64 @@ export async function getFees(q) {
 
   const offerFree = q.free_shipping !== 'false'
 
+  // medidas da caixa (formato "AxLxC,pesoG") — usadas pro peso volumétrico e
+  // pra checar os limites físicos da modalidade escolhida
+  let alturaCm = 0, larguraCm = 0, comprimentoCm = 0
+  if (q.dimensions) {
+    const dims = String(q.dimensions).split(',')[0]
+    const [a, l, c] = dims.split('x').map((n) => Number(n) || 0)
+    alturaCm = a; larguraCm = l; comprimentoCm = c
+  }
+  const pesoRealKg = weightGrams / 1000
+  const modalidade = getModalidade(logisticType)
+
+  // Custos próprios da modalidade, informados pelo usuário:
+  //  - Full: armazenagem/operação por unidade
+  //  - Flex: quanto o motoboy/transportadora cobra de fato
+  const custoOperacaoFull = q.full_op_cost ? Number(q.full_op_cost) || 0 : 0
+  const custoEntregaFlex = q.flex_delivery_cost != null && q.flex_delivery_cost !== ''
+    ? Number(q.flex_delivery_cost) || 0
+    : null
+  const descontoReputacao = q.reputation_discount ? Number(q.reputation_discount) : 0
+  const elegivelSubsidio = q.eligible !== 'false'
+
+  const opts = {
+    alturaCm, larguraCm, comprimentoCm, descontoReputacao, elegivelSubsidio,
+    custoOperacaoFull, custoEntregaFlex,
+  }
+
+  // Detalhamento por modalidade — vale pros dois caminhos (API e estimativa):
+  // é dele que saem os limites de peso/medidas, o peso cobrável e a regra
+  // financeira aplicada. Quando a API responde, só o VALOR do frete é trocado.
+  const detalhe = estimarFreteDetalhado(price, pesoRealKg, logisticType, offerFree, opts)
+  const limites = checarLimites(logisticType, pesoRealKg, { alturaCm, larguraCm, comprimentoCm })
+
   // 1) FRETE REAL da conta do vendedor (API oficial), quando conectado. Já vem
   //    com o desconto real da reputação e o peso volumétrico calculado pela ML.
   let freight = null, freightSource = 'estimate'
   const real = await getRealFreight({ price, listingType, logisticType, weightGrams, dimensions: q.dimensions })
   if (real) {
     freightSource = 'api'
-    if (real.free_by_meli) freight = 0                    // ML cobre 100% (faixa subsidiada)
-    else if (price >= 79 || offerFree) freight = real.list_cost  // vendedor paga o custo real
-    else freight = 0                                      // abaixo de 79 e sem frete grátis: comprador paga
+    let base
+    if (real.free_by_meli) base = 0                          // ML cobre 100% (faixa subsidiada)
+    else if (price >= 79 || offerFree) base = real.list_cost // vendedor paga o custo real
+    else base = 0                                            // abaixo de 79 e sem frete grátis: comprador paga
+
+    if (modalidade.modelo === 'full') {
+      // Acima de R$79 o ML cobre 50% do frete grátis no Full.
+      if (!real.free_by_meli && price >= 79) base = base / 2
+      base += detalhe.custo_extra                            // armazenagem/operação
+    } else if (modalidade.modelo === 'flex') {
+      // No Flex o custo real é o do SEU entregador; da API vem só a tarifa,
+      // que serve de referência pro incentivo pago pelo ML.
+      const tarifa = real.list_cost ?? detalhe.tarifa_base
+      const entrega = custoEntregaFlex == null ? tarifa : custoEntregaFlex
+      base = entrega - tarifa * detalhe.cobertura_ml_pct
+    }
+    freight = Math.round(base * 100) / 100
   } else if (weightGrams > 0) {
     // 2) FALLBACK: estimativa (peso volumétrico + desconto de reputação escolhido)
-    let alturaCm = 0, larguraCm = 0, comprimentoCm = 0
-    if (q.dimensions) {
-      const dims = String(q.dimensions).split(',')[0]
-      const [a, l, c] = dims.split('x').map((n) => Number(n) || 0)
-      alturaCm = a; larguraCm = l; comprimentoCm = c
-    }
-    const descontoReputacao = q.reputation_discount ? Number(q.reputation_discount) : 0
-    freight = estimarFrete(price, weightGrams / 1000, logisticType, offerFree, {
-      alturaCm, larguraCm, comprimentoCm, descontoReputacao,
-    })
+    freight = detalhe.custo_total
   }
 
   return {
@@ -226,6 +263,8 @@ export async function getFees(q) {
     freight, freight_source: freightSource, freight_is_estimate: freightSource === 'estimate',
     freight_free_by_meli: real?.free_by_meli ?? null,
     billable_weight: real?.billable_weight ?? null,
+    freight_detail: detalhe,
+    freight_limits: limites,
   }
 }
 
