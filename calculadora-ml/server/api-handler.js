@@ -1,9 +1,10 @@
-import { authStatus, getFees, buildAuthUrl, exchangeCode, getCatalogLive, getTendenciaVisitas } from './ml.js'
+import { authStatus, getFees, buildAuthUrl, exchangeCode, getCatalogLive, getTendenciaVisitas, mlUploadPicture } from './ml.js'
 import { findCompetitor, suggestCategories, getAnuncioBase, buscarCategorias, getPacoteAnuncio } from './catalog.js'
 import { pesquisarMercado, buscarAnuncios } from './mercado.js'
 import { consultarProdutoErp, consultarPorBarras, erpStatus } from './erp.js'
 import { getEmAlta, categoriasRaiz, categoriasFilhas, termosDoSite, demanda } from './alta.js'
 import { lerRelatorio, lerProdutos, analisarCategoria, pontuar } from './categorias.js'
+import { buscarCatalogo, prefillAnuncio, feesPorTipo, validarAnuncio, publicarAnuncio } from './publicar.js'
 
 // Handler compartilhado das rotas /api/* e /callback.
 // Usado tanto pelo dev-server do Vite (vite-plugin-api.js) quanto pelo
@@ -145,6 +146,39 @@ export async function handleApi(req, res) {
       })
       return true
     }
+
+    // ===== Publicar anúncio =====
+    if (path === '/api/publicar/busca') { json(res, await buscarCatalogo(url.searchParams.get('q') || '')); return true }
+    if (path === '/api/publicar/prefill') { json(res, await prefillAnuncio(url.searchParams.get('catalog_id') || '')); return true }
+    if (path === '/api/publicar/fees') {
+      json(res, await feesPorTipo({
+        price: url.searchParams.get('price') || '0',
+        category_id: url.searchParams.get('category_id') || '',
+        logistic_type: url.searchParams.get('logistic_type') || 'cross_docking',
+      }))
+      return true
+    }
+    if (path === '/api/publicar/foto') {
+      if (req.method !== 'POST') { res.statusCode = 405; json(res, { error: 'metodo_invalido' }); return true }
+      const buf = await readBody(req)
+      const filename = decodeURIComponent(req.headers['x-filename'] || 'foto.jpg')
+      const mime = req.headers['content-type'] || 'image/jpeg'
+      const pic = await mlUploadPicture(buf, filename, mime)
+      const url0 = pic?.variations?.[0]?.secure_url || pic?.variations?.[0]?.url || null
+      json(res, { id: pic?.id || null, url: url0 })
+      return true
+    }
+    if (path === '/api/publicar/validar') {
+      if (req.method !== 'POST') { res.statusCode = 405; json(res, { error: 'metodo_invalido' }); return true }
+      json(res, await validarAnuncio(await readJson(req)))
+      return true
+    }
+    if (path === '/api/publicar/publicar') {
+      if (req.method !== 'POST') { res.statusCode = 405; json(res, { error: 'metodo_invalido' }); return true }
+      json(res, await publicarAnuncio(await readJson(req)))
+      return true
+    }
+
     return false
   } catch (e) {
     res.statusCode = e.status || 500
@@ -160,4 +194,25 @@ function json(res, obj) {
 function html(res, body) {
   res.setHeader('content-type', 'text/html; charset=utf-8')
   res.end(`<!doctype html><meta charset="utf-8"><body style="font-family:sans-serif;padding:2rem;max-width:40rem;margin:auto">${body}</body>`)
+}
+
+// Lê o corpo bruto da requisição (binário). Usado pelo upload de foto (arquivo
+// puro) e como base do readJson. Aborta se passar do limite pra não estourar RAM.
+function readBody(req, limit = 15 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = []
+    let size = 0
+    req.on('data', (c) => {
+      size += c.length
+      if (size > limit) { req.destroy(); reject(Object.assign(new Error('arquivo_muito_grande'), { status: 413 })) ; return }
+      chunks.push(c)
+    })
+    req.on('end', () => resolve(Buffer.concat(chunks)))
+    req.on('error', reject)
+  })
+}
+async function readJson(req) {
+  const buf = await readBody(req, 1024 * 1024)
+  try { return JSON.parse(buf.toString('utf8') || '{}') }
+  catch { throw Object.assign(new Error('json_invalido'), { status: 400 }) }
 }

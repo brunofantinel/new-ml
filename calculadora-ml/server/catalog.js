@@ -2,7 +2,7 @@ import { mlGet, getCatalogLive, predictCategory } from './ml.js'
 
 // Limpa o nome do produto para melhorar o acerto na busca do catálogo:
 // tira o sufixo " - MARCA", códigos soltos e espaços repetidos.
-function limparNome(nome) {
+export function limparNome(nome) {
   return String(nome)
     .replace(/\s+-\s+[^-]+$/, '') // remove " - MARCA" no fim
     .replace(/\s{2,}/g, ' ')
