@@ -164,6 +164,12 @@ export async function analisarCategoria(catId, { dias = 30, top = 12 } = {}) {
 // muita visita e milhões de anúncios não é oportunidade, é multidão.
 const limitar = (v, a, b) => Math.max(a, Math.min(b, v))
 
+// Abaixo disto a categoria é pequena demais para a razão significar alguma
+// coisa: 300 visitas/dia somando os ~12 produtos mais vendidos da categoria
+// INTEIRA. Na varredura completa a mediana ficou em ~1.550/dia e o percentil 10
+// em ~180, então 300 separa nicho minúsculo de categoria de verdade.
+const PISO_VISITAS_DIA = 300
+
 export function pontuar(c, referencia) {
   if (!c || !c.amostra) return { ...c, temperatura: null }
   const maxPorOferta = referencia?.maxPorOferta || 1
@@ -174,17 +180,27 @@ export function pontuar(c, referencia) {
   const crescimento = limitar(((c.subindo - c.caindo) / c.amostra + 1) / 2, 0, 1)
   const folga = c.vendedores_medio != null ? 1 / (1 + c.vendedores_medio / 10) : 0.5
 
-  const temperatura = Math.round(100 * (0.40 * oportunidade + 0.30 * crescimento + 0.30 * folga))
+  const bruto = 100 * (0.40 * oportunidade + 0.30 * crescimento + 0.30 * folga)
+
+  // Fator de PORTE. Sem ele, categoria minúscula vira "oportunidade" só porque
+  // tem pouquíssimo anúncio: "Criptomoedas" tirava 74 com 9,6 visitas/dia. É
+  // multiplicador e não parcela de propósito — acima do piso ele some, e a
+  // ordem entre as categorias de verdade continua sendo procura por oferta.
+  const porte = limitar(
+    Math.log10(1 + c.visitas_dia) / Math.log10(1 + PISO_VISITAS_DIA), 0, 1
+  )
+  const temperatura = Math.round(bruto * porte)
 
   // leitura em palavras, que é o que a tela mostra
   let leitura
-  if (temperatura >= 65) leitura = 'oportunidade'
+  if (c.visitas_dia < PISO_VISITAS_DIA) leitura = 'nicho pequeno'
+  else if (temperatura >= 65) leitura = 'oportunidade'
   else if (c.direcao === 'subindo' && c.vendedores_medio > 20) leitura = 'esquentando mas disputada'
   else if (c.direcao === 'caindo') leitura = 'esfriando'
   else if (c.vendedores_medio > 25) leitura = 'muito disputada'
   else leitura = 'morna'
 
-  return { ...c, temperatura, leitura }
+  return { ...c, temperatura, leitura, porte: Math.round(porte * 100) }
 }
 
 // --- arquivo gerado pelo job ----------------------------------------------
