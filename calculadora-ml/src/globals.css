@@ -33,6 +33,8 @@
   /* Alertas / estados */
   --c-warn-bg: #fdf6df;
   --c-warn-text: #7f5f1b;
+  --c-warn-line: #e5c76b;   /* borda do estado de atenção */
+  --c-warn-accent: #e08a13; /* laranja de atenção (barra/realce) */
   --c-danger-bg: #fdf2f2;
   --c-danger: #c53030;
   --c-draft-bg: #fef08a;

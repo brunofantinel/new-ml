@@ -835,9 +835,18 @@ button.ghost {
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-soft);
 }
+/* O tom muda o card inteiro (fundo, borda, barra e texto), pra dar pra ler o
+   estado da procura de longe: verde = alta, laranja = atenção, vermelho = ruim. */
+.demand-card.up { background: var(--c-teal-050); border-color: var(--c-teal-200); }
+.demand-card.flat { background: var(--c-warn-bg); border-color: var(--c-warn-line); }
+.demand-card.down,
+.demand-card.low { background: var(--c-danger-bg); border-color: var(--c-danger); }
+
 .demand-card .accent { width: 12px; flex: 0 0 12px; background: var(--c-demand-900); }
 .demand-card.up .accent { background: var(--c-green-600); }
-.demand-card.down .accent { background: var(--c-danger); }
+.demand-card.flat .accent { background: var(--c-warn-accent); }
+.demand-card.down .accent,
+.demand-card.low .accent { background: var(--c-danger); }
 .demand-card .body {
   display: flex;
   flex-direction: column;
@@ -853,7 +862,9 @@ button.ghost {
   color: var(--c-demand-900);
 }
 .demand-card.up .t { color: var(--c-green-800); }
-.demand-card.down .t { color: var(--c-danger); }
+.demand-card.flat .t { color: var(--c-warn-text); }
+.demand-card.down .t,
+.demand-card.low .t { color: var(--c-danger); }
 .demand-card .m {
   font-size: var(--fs-15);
   font-weight: var(--fw-medium);
@@ -862,12 +873,19 @@ button.ghost {
 }
 .demand-card .m b { font-weight: var(--fw-extrabold); color: var(--c-demand-900); }
 .demand-card.up .m, .demand-card.up .m b { color: var(--c-green-800); }
-.demand-card.down .m, .demand-card.down .m b { color: var(--c-danger); }
+.demand-card.flat .m, .demand-card.flat .m b { color: var(--c-warn-text); }
+.demand-card.down .m, .demand-card.down .m b,
+.demand-card.low .m, .demand-card.low .m b { color: var(--c-danger); }
 .demand-card .d {
   font-size: var(--fs-13);
   line-height: var(--lh-normal);
   color: var(--c-white);
 }
+/* nos tons coloridos o fundo é claro — a nota de rodapé precisa escurecer */
+.demand-card.up .d,
+.demand-card.flat .d,
+.demand-card.down .d,
+.demand-card.low .d { color: var(--c-text-muted); }
 
 /* foto do rascunho do anúncio (draft-photo) */
 .draft-photo {

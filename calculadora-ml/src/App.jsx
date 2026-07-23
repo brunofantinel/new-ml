@@ -631,6 +631,42 @@ function Mercado() {
   )
 }
 
+// Traduz o resultado do termômetro (visitas) em um estado visual do card:
+//   verde    = procura em alta, com tráfego que sustenta a conclusão
+//   laranja  = atenção (procura parada, ou subindo com pouca visita pra confiar)
+//   vermelho = procura ruim (em queda, ou quase ninguém procurando)
+// O percentual só aparece quando há tráfego: sair de 1 pra 4 visitas vira
+// "+300%" e passa uma ideia errada de produto bombando.
+function nivelProcura(t) {
+  const semTrafego = t.sinal_fraco || t.total < 15
+
+  if (t.direcao === 'caindo') {
+    return {
+      tone: 'down', emo: '📉', txt: 'Procura em QUEDA', mostrarPct: !semTrafego,
+      nota: semTrafego
+        ? '⚠️ Poucas visitas na janela — a queda é uma pista, não uma certeza.'
+        : 'Menos gente procurando este produto que na metade anterior da janela.',
+    }
+  }
+  if (semTrafego) {
+    // pouquíssima visita: não importa a direção, ninguém está procurando isso
+    return {
+      tone: 'low', emo: '🔻', txt: 'Procura BAIXA', mostrarPct: false,
+      nota: `Só ${t.total} visita${t.total === 1 ? '' : 's'} em ${t.dias} dias somando todos os anúncios — procura fraca demais pra medir tendência.`,
+    }
+  }
+  if (t.direcao === 'estavel') {
+    return {
+      tone: 'flat', emo: '➖', txt: 'Procura ESTÁVEL', mostrarPct: true,
+      nota: 'Sem crescimento na janela — dá pra vender, mas não espere disparada.',
+    }
+  }
+  return {
+    tone: 'up', emo: '📈', txt: 'Procura em ALTA', mostrarPct: true,
+    nota: 'Mais gente procurando que na metade anterior da janela.',
+  }
+}
+
 // Avalia o quão competitivo está o SEU preço de venda vs a média dos anúncios
 // ativos do mesmo produto no Mercado Livre. mercado = { min, mediana, max }.
 // Devolve { tone, titulo, msg } ou null se não houver mercado pra comparar.
@@ -1873,25 +1909,25 @@ function Calculator() {
                 <p className="spin">Medindo a procura…</p>
               ) : tendencia.data?.encontrado ? (() => {
                 const t = tendencia.data
-                // stable-demand-card do design: barra de destaque à esquerda + conteúdo
-                const c = {
-                  subindo: { tone: 'up', emo: '📈', txt: 'Procura em ALTA' },
-                  caindo: { tone: 'down', emo: '📉', txt: 'Procura em QUEDA' },
-                  estavel: { tone: 'flat', emo: '➖', txt: 'Procura ESTÁVEL' },
-                }[t.direcao] || { tone: 'flat', emo: '➖', txt: 'Procura' }
+                const c = nivelProcura(t)
                 return (
                   <div className={'demand-card ' + c.tone}>
                     <div className="accent" />
                     <div className="body">
                       <div className="t">
-                        {c.emo} {c.txt}{t.change_pct != null ? ` (${t.change_pct > 0 ? '+' : ''}${t.change_pct}%)` : ''}
+                        {c.emo} {c.txt}
+                        {/* com pouquíssimas visitas o % é ruído (1 → 4 = "+300%"),
+                            então só mostramos quando há tráfego pra sustentar */}
+                        {c.mostrarPct && t.change_pct != null
+                          ? ` (${t.change_pct > 0 ? '+' : ''}${t.change_pct}%)`
+                          : ''}
                       </div>
                       <div className="m">
                         Últimos {t.meia_janela} dias: <b>{t.recente}</b> visitas · {t.meia_janela} dias anteriores: <b>{t.antigo}</b>
                       </div>
                       <div className="d">
+                        {c.nota ? c.nota + ' ' : ''}
                         Somado de {t.n_itens} anúncio{t.n_itens === 1 ? '' : 's'} do produto. Visita mede procura/interesse, não venda.
-                        {t.sinal_fraco ? ' ⚠️ Pouco tráfego — sinal fraco, leve como pista.' : ''}
                       </div>
                     </div>
                   </div>
