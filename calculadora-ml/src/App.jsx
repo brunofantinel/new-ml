@@ -112,6 +112,8 @@ const VIA_TXT = {
 export default function App() {
   const [view, setView] = useState('calc')
   const [status, setStatus] = useState({ loading: true, ready: false })
+  // termo mandado da aba "Em alta" pra aba "Pesquisa de mercado"
+  const [buscaMercado, setBuscaMercado] = useState('')
 
   useEffect(() => {
     fetch('/api/auth/status')
@@ -126,13 +128,16 @@ export default function App() {
         <button className={view === 'calc' ? 'tab on' : 'tab'} onClick={() => setView('calc')}>Calculadora</button>
         <button className={view === 'produto' ? 'tab on' : 'tab'} onClick={() => setView('produto')}>Consultar produto</button>
         <button className={view === 'mercado' ? 'tab on' : 'tab'} onClick={() => setView('mercado')}>Pesquisa de mercado</button>
+        <button className={view === 'alta' ? 'tab on' : 'tab'} onClick={() => setView('alta')}>Em alta</button>
         <button className={view === 'vantagens' ? 'tab on' : 'tab'} onClick={() => setView('vantagens')}>Vantagens no ML</button>
       </nav>
 
       {view === 'vantagens' ? (
         <Vantagens />
+      ) : view === 'alta' ? (
+        <EmAlta onPesquisar={(termo) => { setBuscaMercado(termo); setView('mercado') }} />
       ) : view === 'mercado' ? (
-        <Mercado />
+        <Mercado inicial={buscaMercado} />
       ) : view === 'produto' ? (
         <Produto />
       ) : (
@@ -464,11 +469,192 @@ function Nivel({ level }) {
   )
 }
 
-function Mercado() {
-  const [q, setQ] = useState('')
+// ===========================================================================
+// EM ALTA — o caminho inverso: parte do que o ML já vende bem.
+// ===========================================================================
+// O ranking vem de /highlights (mais vendidos da categoria, montado pelo
+// próprio ML) e os termos de /trends. Escolha a categoria FOLHA: na raiz o
+// topo é o campeão de venda do Brasil inteiro, com centenas de vendedores.
+function EmAlta({ onPesquisar }) {
+  const [raizes, setRaizes] = useState([])
+  const [raiz, setRaiz] = useState('')
+  const [filhas, setFilhas] = useState([])
+  const [filha, setFilha] = useState('')
+  const [dados, setDados] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [termosSite, setTermosSite] = useState([])
+
+  useEffect(() => {
+    fetch('/api/categorias').then((r) => r.json()).then((d) => setRaizes(d.filhas || [])).catch(() => {})
+    fetch('/api/termos-alta').then((r) => r.json()).then((d) => setTermosSite(Array.isArray(d) ? d : [])).catch(() => {})
+  }, [])
+
+  async function escolherRaiz(id) {
+    setRaiz(id); setFilha(''); setFilhas([]); setDados(null)
+    if (!id) return
+    try {
+      const d = await fetch('/api/categorias?pai=' + encodeURIComponent(id)).then((r) => r.json())
+      setFilhas(d.filhas || [])
+    } catch { setFilhas([]) }
+  }
+
+  async function carregar(catId) {
+    if (!catId) return
+    setBusy(true); setDados(null)
+    try {
+      setDados(await fetch('/api/em-alta?categoria=' + encodeURIComponent(catId)).then((r) => r.json()))
+    } catch {
+      setDados({ erro: 'falhou', itens: [] })
+    }
+    setBusy(false)
+  }
+
+  const itens = dados?.itens || []
+
+  return (
+    <>
+      <div className="eyebrow">Mais vendidos · ranking do próprio Mercado Livre</div>
+      <h1>O que está em alta agora</h1>
+      <p className="sub">
+        Aqui é o contrário da calculadora: em vez de partir do seu produto, parte do que o ML{' '}
+        <b>já está vendendo bem</b>. O ranking é de <b>venda</b>, não de visita — é o próprio ML que monta.
+      </p>
+
+      <div className="card">
+        <h2><span className="n">1</span> Escolha a categoria</h2>
+        <div className="row2">
+          <div className="field">
+            <label>Seção</label>
+            <select value={raiz} onChange={(e) => escolherRaiz(e.target.value)}>
+              <option value="">— escolha —</option>
+              {raizes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label>Categoria</label>
+            <select
+              value={filha}
+              disabled={!filhas.length}
+              onChange={(e) => { setFilha(e.target.value); carregar(e.target.value) }}
+            >
+              <option value="">{filhas.length ? '— escolha —' : 'escolha a seção primeiro'}</option>
+              {filhas.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="hint">
+          Prefira a categoria de dentro. Na seção inteira o topo costuma ter centenas de vendedores —
+          briga difícil pra conta nova.
+        </div>
+        {raiz && (
+          <button className="ghost" style={{ marginTop: 10 }} onClick={() => carregar(raiz)}>
+            Ver o ranking da seção inteira mesmo assim
+          </button>
+        )}
+      </div>
+
+      {!dados && !busy && termosSite.length > 0 && (
+        <div className="card">
+          <h2>🔥 Mais buscados no ML hoje</h2>
+          <div className="hint" style={{ marginBottom: 10 }}>
+            O que o Brasil está digitando na busca agora. Clique pra pesquisar no app.
+          </div>
+          <div className="termo-chips">
+            {termosSite.map((t) => (
+              <button key={t.termo} type="button" className="termo-chip" onClick={() => onPesquisar(t.termo)}>
+                {t.termo}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {busy && <p className="spin">Puxando o ranking de mais vendidos…</p>}
+
+      {dados?.termos?.length > 0 && (
+        <div className="card">
+          <h2>🔥 Mais buscados nesta categoria</h2>
+          <div className="termo-chips">
+            {dados.termos.map((t) => (
+              <button key={t.termo} type="button" className="termo-chip" onClick={() => onPesquisar(t.termo)}>
+                {t.termo}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {dados && !busy && (
+        dados.vazio || !itens.length ? (
+          <div className="card">
+            <div className="hint">
+              O Mercado Livre não publica ranking de mais vendidos para esta categoria. Tente outra —
+              ou veja o da seção inteira.
+            </div>
+          </div>
+        ) : (
+          <div className="card">
+            <h2>
+              🏆 Mais vendidos {dados.categoria?.nome ? `em ${dados.categoria.nome}` : ''}
+              <span className="pill">{itens.length} posições</span>
+            </h2>
+            {dados.categoria?.path && <div className="hint" style={{ marginBottom: 12 }}>{dados.categoria.path}</div>}
+            <div className="alta-grid">
+              {itens.map((it) => (
+                <div key={`${it.tipo}-${it.id}`} className="alta-card">
+                  <div className="alta-pos">#{it.posicao}</div>
+                  <div className="alta-pic">
+                    {it.thumbnail
+                      ? <img src={it.thumbnail} alt="" />
+                      : <span className="alta-pic-vazia">sem foto</span>}
+                  </div>
+                  <div className="alta-body">
+                    <div className="alta-nome">
+                      {it.nome || (it.sem_dados ? 'Anúncio individual (o ML não abre os dados)' : 'Sem nome')}
+                    </div>
+                    {it.marca && <div className="alta-marca">{it.marca}</div>}
+                    <div className="alta-num">
+                      {it.preco_min != null ? <b>{money(it.preco_min)}</b> : <span className="alta-sem">preço não disponível</span>}
+                      {it.n_vend != null && (
+                        <span className={'alta-conc' + (it.n_vend > 30 ? ' muito' : it.n_vend <= 5 ? ' pouco' : '')}>
+                          {it.n_vend} {it.n_vend === 1 ? 'vendedor' : 'vendedores'}
+                        </span>
+                      )}
+                    </div>
+                    {it.oficiais > 0 && <div className="alta-alerta">⚠ {it.oficiais} loja oficial vendendo</div>}
+                    {!it.catalogo && !it.sem_dados && <div className="alta-tag">anúncio próprio de vendedor</div>}
+                    <div className="alta-acoes">
+                      {it.nome && (
+                        <button type="button" className="ghost" onClick={() => onPesquisar(it.nome)}>
+                          Pesquisar
+                        </button>
+                      )}
+                      <a className="alta-link" href={it.url} target="_blank" rel="noreferrer">Ver no ML ›</a>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      )}
+
+      <footer>
+        Ranking de mais vendidos publicado pelo próprio Mercado Livre, buscado na hora (guardado por 1 hora).
+        Ele não conhece o seu custo: produto em alta com muitos vendedores costuma ser armadilha pra conta nova.
+      </footer>
+    </>
+  )
+}
+
+// `inicial` chega quando a pessoa clica em "Pesquisar" num produto da aba
+// "Em alta" — a busca já dispara sozinha com o nome dele.
+function Mercado({ inicial = '' }) {
+  const [q, setQ] = useState(inicial)
   const [busy, setBusy] = useState(false)
   const [data, setData] = useState(null)
   const [msg, setMsg] = useState(null)
+  const jaBuscou = useRef('')
 
   async function buscar(termo) {
     const query = (termo ?? q).trim()
@@ -491,6 +677,16 @@ function Mercado() {
     }
     setBusy(false)
   }
+
+  // veio da aba "Em alta": pesquisa sozinho (uma vez por termo)
+  useEffect(() => {
+    const t = (inicial || '').trim()
+    if (t && jaBuscou.current !== t) {
+      jaBuscou.current = t
+      setQ(t)
+      buscar(t)
+    }
+  }, [inicial])
 
   const maxVendas = data?.top_vendedores?.[0]?.vendas_hist || 0
 

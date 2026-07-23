@@ -2,6 +2,7 @@ import { authStatus, getFees, buildAuthUrl, exchangeCode, getCatalogLive, getTen
 import { findCompetitor, suggestCategories, getAnuncioBase, buscarCategorias, getPacoteAnuncio } from './catalog.js'
 import { pesquisarMercado, buscarAnuncios } from './mercado.js'
 import { consultarProdutoErp, consultarPorBarras, erpStatus } from './erp.js'
+import { getEmAlta, categoriasRaiz, categoriasFilhas, termosDoSite } from './alta.js'
 
 // Handler compartilhado das rotas /api/* e /callback.
 // Usado tanto pelo dev-server do Vite (vite-plugin-api.js) quanto pelo
@@ -34,6 +35,18 @@ export async function handleApi(req, res) {
     // /api/predict-category, que parte de um produto
     if (path === '/api/buscar-categoria') { json(res, await buscarCategorias(url.searchParams.get('q') || '')); return true }
     if (path === '/api/anuncio') { json(res, await getAnuncioBase(url.searchParams.get('catalog_id') || '', url.searchParams.get('category_id') || '')); return true }
+    // ── O que está em alta no ML (caminho inverso: parte do mercado) ──
+    if (path === '/api/categorias') {
+      const pai = (url.searchParams.get('pai') || '').trim()
+      json(res, pai ? await categoriasFilhas(pai) : { filhas: await categoriasRaiz() })
+      return true
+    }
+    if (path === '/api/em-alta') {
+      json(res, await getEmAlta(url.searchParams.get('categoria') || ''))
+      return true
+    }
+    if (path === '/api/termos-alta') { json(res, await termosDoSite()); return true }
+
     // peso e medidas da embalagem, lidos dos anúncios reais desse produto
     if (path === '/api/pacote') {
       json(res, await getPacoteAnuncio(
