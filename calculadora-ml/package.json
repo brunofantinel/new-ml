@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Calculadora de lucro do Mercado Livre com taxas reais da API oficial",
+  "engines": { "node": ">=22.13" },
   "scripts": {
     "dev": "vite",
     "build": "vite build",

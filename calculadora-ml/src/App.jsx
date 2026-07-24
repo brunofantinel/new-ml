@@ -36,6 +36,16 @@ const WARRANTY_TYPES = ['Garantia do vendedor', 'Garantia de fábrica', 'Sem gar
 const TITULO_PROIBIDO = /frete\s*gr[áa]tis|oferta|promo[çc]|imperd[íi]vel|liquida|desconto|barat|melhor\s*pre[çc]o|whats\s*app|https?:\/\/|www\./i
 const TITULO_MAX = 60
 
+// Traduz erros de conexão/escrita da API (usado no wizard e no revisor).
+function mapErroConexao(r) {
+  if (r.error === 'vendedor_nao_conectado') return 'Conecte sua conta de vendedor para publicar.'
+  const s = r.status || r.detail?.status
+  if (s === 403 || /forbidden/i.test(r.error || '')) {
+    return 'O token da conexão não tem permissão de escrita. Reconecte habilitando a publicação (write) no seu aplicativo do Mercado Livre.'
+  }
+  return r.detail?.message || r.error || 'Não consegui completar a operação agora.'
+}
+
 // Nível de reputação do vendedor no Mercado Livre (termômetro verde→vermelho).
 const NIVEL = {
   '5_green': { txt: 'Excelente', cor: '#00a650' },
@@ -95,6 +105,7 @@ const VIA_TXT = {
 export default function App() {
   const [view, setView] = useState('calc')
   const [status, setStatus] = useState({ loading: true, ready: false })
+  const [pendentes, setPendentes] = useState(0)
 
   useEffect(() => {
     fetch('/api/auth/status')
@@ -103,6 +114,15 @@ export default function App() {
       .catch(() => setStatus({ loading: false, ready: false }))
   }, [])
 
+  // Badge da aba "Revisor": nº de anúncios aguardando aprovação. Atualiza ao
+  // montar e sempre que troca de aba (pega o que o wizard acabou de enfileirar).
+  useEffect(() => {
+    fetch('/api/revisao?status=pendente')
+      .then((r) => r.json())
+      .then((d) => setPendentes(d.pendentes || 0))
+      .catch(() => {})
+  }, [view])
+
   return (
     <div className="wrap">
       <nav className="tabs">
@@ -110,11 +130,18 @@ export default function App() {
         <button className={view === 'produto' ? 'tab on' : 'tab'} onClick={() => setView('produto')}>Consultar produto</button>
         <button className={view === 'mercado' ? 'tab on' : 'tab'} onClick={() => setView('mercado')}>Pesquisa de mercado</button>
         <button className={view === 'publicar' ? 'tab on' : 'tab'} onClick={() => setView('publicar')}>Publicar anúncio</button>
+        <button className={view === 'revisor' ? 'tab on' : 'tab'} onClick={() => setView('revisor')}>
+          Revisor{pendentes > 0 && <span className="pill warn" style={{ marginLeft: 6 }}>{pendentes}</span>}
+        </button>
         <button className={view === 'vantagens' ? 'tab on' : 'tab'} onClick={() => setView('vantagens')}>Vantagens no ML</button>
       </nav>
 
       {view === 'vantagens' ? (
         <Vantagens />
+      ) : view === 'revisor' ? (
+        <Revisor status={status} onChange={() => {
+          fetch('/api/revisao?status=pendente').then((r) => r.json()).then((d) => setPendentes(d.pendentes || 0)).catch(() => {})
+        }} />
       ) : view === 'publicar' ? (
         <Publicar status={status} />
       ) : view === 'mercado' ? (
@@ -1342,6 +1369,11 @@ function Publicar({ status }) {
   const [publicando, setPublicando] = useState(false)
   const [resultado, setResultado] = useState(null)
   const [erro, setErro] = useState('')
+  // custo/ERP — só pra alimentar o Revisor (não vai pro anúncio no ML)
+  const [codErp, setCodErp] = useState('')
+  const [custo, setCusto] = useState('')
+  const [erpBusy, setErpBusy] = useState(false)
+  const [erpInfo, setErpInfo] = useState(null)
 
   // Gate: publicar exige conta de vendedor conectada (o app token não publica).
   if (status && !status.seller_connected) {
@@ -1365,15 +1397,6 @@ function Publicar({ status }) {
         </div>
       </>
     )
-  }
-
-  function mapErroConexao(r) {
-    if (r.error === 'vendedor_nao_conectado') return 'Conecte sua conta de vendedor para publicar.'
-    const s = r.status || r.detail?.status
-    if (s === 403 || /forbidden/i.test(r.error || '')) {
-      return 'O token da conexão não tem permissão de escrita. Reconecte habilitando a publicação (write) no seu aplicativo do Mercado Livre.'
-    }
-    return r.detail?.message || r.error || 'Não consegui completar a operação agora.'
   }
 
   async function buscar() {
@@ -1497,6 +1520,38 @@ function Publicar({ status }) {
     }
   }
 
+  // Payload enviado PARA A FILA de revisão: o anúncio + custo/ERP e os metadados
+  // que o Revisor precisa pra mostrar a ficha com nomes. As chaves extras são
+  // ignoradas por montarItemBody na hora de validar/publicar de verdade.
+  function payloadRevisao() {
+    return {
+      ...payload(),
+      custo: custo !== '' ? Number(custo) : null,
+      cod_erp: codErp.trim() || null,
+      category_attributes: anuncio.category_attributes,
+      category_path: anuncio.category_path || null,
+    }
+  }
+
+  // Busca o custo do produto no ERP da loja (opcional; só alimenta o Revisor).
+  async function buscarCustoErp() {
+    const cod = codErp.trim()
+    if (!cod) return
+    setErpBusy(true); setErpInfo(null)
+    try {
+      const d = await fetch('/api/produto?cod=' + encodeURIComponent(cod)).then((r) => r.json())
+      if (d.encontrado) {
+        setErpInfo(d)
+        if (d.custo?.ultimo != null) setCusto(String(d.custo.ultimo))
+      } else {
+        setErpInfo({ encontrado: false, erro: d.erro || 'nao_encontrado' })
+      }
+    } catch {
+      setErpInfo({ encontrado: false, erro: 'falha' })
+    }
+    setErpBusy(false)
+  }
+
   async function validar() {
     setValidando(true); setValidacao(null); setErro('')
     try {
@@ -1511,16 +1566,24 @@ function Publicar({ status }) {
     setValidando(false)
   }
 
-  async function publicar() {
-    setPublicando(true); setErro('')
+  // Em vez de publicar direto, VALIDA no ML e envia o anúncio para a fila de
+  // revisão. Quem publica de verdade é o gestor, na aba "Revisor".
+  async function enviarParaRevisao() {
+    setPublicando(true); setErro(''); setValidacao(null)
     try {
-      const r = await fetch('/api/publicar/publicar', {
+      const v = await fetch('/api/publicar/validar', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload()),
       }).then((res) => res.json())
-      if (r.error) setErro(mapErroConexao(r))
-      else { setResultado(r); setPasso(4) }
+      if (v.error) { setErro(mapErroConexao(v)); setPublicando(false); return }
+      setValidacao(v)
+      if (!v.ok) { setPublicando(false); return }   // erros aparecem no callout existente
+      const r = await fetch('/api/revisao', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payloadRevisao()),
+      }).then((res) => res.json())
+      if (r.error) setErro(r.detail?.message || r.error)
+      else { setResultado({ fila_id: r.id }); setPasso(4) }
     } catch {
-      setErro('Não consegui publicar agora. Tente de novo.')
+      setErro('Não consegui enviar para revisão agora. Tente de novo.')
     }
     setPublicando(false)
   }
@@ -1542,8 +1605,10 @@ function Publicar({ status }) {
     quantidade: Number(anuncio.quantity) > 0,
     categoria: !!anuncio.category_id,
   }
+  // Libera o "Enviar para revisão": checklist essencial ok. A validação no ML
+  // roda automaticamente no envio (não precisa clicar "Validar" antes).
   const podePublicar = check && check.titulo && check.fotos && check.ficha && check.preco &&
-    check.quantidade && check.categoria && validacao?.ok
+    check.quantidade && check.categoria
 
   const tituloProibido = anuncio && TITULO_PROIBIDO.test(anuncio.title)
 
@@ -1553,11 +1618,12 @@ function Publicar({ status }) {
       <h1>Publicar anúncio no Mercado Livre</h1>
       <p className="sub">
         Monte o anúncio no padrão do Mercado Livre: dados do catálogo, ficha técnica completa, fotos, garantia e
-        descrição. Você <b>valida</b> (sem publicar) e só publica quando estiver tudo certo.
+        descrição. Ao terminar, o anúncio é <b>validado</b> e enviado para o gestor <b>aprovar</b> na aba Revisor —
+        só então é publicado de verdade.
       </p>
 
       <div className="pub-steps">
-        {['1 · Produto', '2 · Revisão', '3 · Preço e tipo', '4 · Publicado'].map((t, i) => (
+        {['1 · Produto', '2 · Conteúdo', '3 · Preço e tipo', '4 · Na fila'].map((t, i) => (
           <span key={i} className={'pub-step' + (passo === i + 1 ? ' on' : '') + (passo > i + 1 ? ' done' : '')}>{t}</span>
         ))}
       </div>
@@ -1811,15 +1877,43 @@ function Publicar({ status }) {
                   </div>
                 </div>
 
+                <div className="card">
+                  <h2><span className="n">💰</span> Custo do produto <span className="pill warn" style={{ background: 'var(--paper)', color: 'var(--soft)', borderColor: 'var(--line)' }}>para o revisor</span></h2>
+                  <p className="hint" style={{ marginBottom: 10 }}>
+                    Opcional. O gestor vê o custo lado a lado com o preço de venda na hora de aprovar. Não vai para o anúncio no Mercado Livre.
+                  </p>
+                  <div className="row2">
+                    <div className="field">
+                      <label>Código do produto no ERP</label>
+                      <div className="row-inline">
+                        <input style={{ flex: 1 }} placeholder="ex: 1234" value={codErp}
+                          onChange={(e) => setCodErp(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') buscarCustoErp() }} />
+                        <button className="ghost" onClick={buscarCustoErp} disabled={erpBusy || !codErp.trim()}>
+                          {erpBusy ? 'Buscando…' : 'Buscar custo'}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="field">
+                      <label>Custo (R$)</label>
+                      <input type="number" step="0.01" value={custo} placeholder="ex: 80,00"
+                        onChange={(e) => setCusto(e.target.value)} />
+                    </div>
+                  </div>
+                  {erpInfo && (erpInfo.encontrado
+                    ? <div className="hint">✓ {erpInfo.descricao || 'Produto'} — custo preenchido do ERP (ajuste se precisar).</div>
+                    : <div className="hint" style={{ color: 'var(--warn)' }}>Não achei esse código no ERP. Você pode digitar o custo à mão.</div>)}
+                </div>
+
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button className="ghost" onClick={() => setPasso(2)} style={{ flex: '0 0 auto' }}>◀ Voltar</button>
-                  <button className="primary" onClick={validar} disabled={validando}>
-                    {validando ? 'Validando no Mercado Livre…' : '✔ Validar no Mercado Livre (não publica)'}
+                  <button className="ghost" onClick={validar} disabled={validando} style={{ flex: 1 }}>
+                    {validando ? 'Validando no Mercado Livre…' : '✔ Conferir no Mercado Livre (opcional)'}
                   </button>
                 </div>
 
                 {validacao && (validacao.ok ? (
-                  <div className="callout"><b>✓ O Mercado Livre aceitou o anúncio</b> — simulação, nada foi publicado. Você já pode publicar de verdade.</div>
+                  <div className="callout"><b>✓ O Mercado Livre aceitou o anúncio</b> — simulação, nada foi publicado.</div>
                 ) : (
                   <div className="callout bad">
                     <b>O Mercado Livre apontou {validacao.erros.length} ponto(s):</b>
@@ -1829,13 +1923,17 @@ function Publicar({ status }) {
                   </div>
                 ))}
 
-                <button className="primary" onClick={publicar} disabled={!podePublicar || publicando}
+                <button className="primary" onClick={enviarParaRevisao} disabled={!podePublicar || publicando}
                   style={{ background: podePublicar ? undefined : 'var(--soft)' }}>
-                  {publicando ? 'Publicando…' : '🚀 Publicar anúncio'}
+                  {publicando ? 'Enviando…' : '📨 Enviar para revisão'}
                 </button>
-                {!podePublicar && !publicando && (
+                {!podePublicar && !publicando ? (
                   <div className="hint" style={{ textAlign: 'center' }}>
-                    Para liberar a publicação: complete o checklist e passe na validação.
+                    Para enviar para revisão: complete o checklist (categoria, título, foto, ficha, preço e quantidade).
+                  </div>
+                ) : (
+                  <div className="hint" style={{ textAlign: 'center' }}>
+                    Validamos no Mercado Livre automaticamente e enviamos para o gestor aprovar na aba <b>Revisor</b>.
                   </div>
                 )}
               </>
@@ -1867,42 +1965,31 @@ function Publicar({ status }) {
         </div>
       )}
 
-      {/* ---------- PASSO 4: resultado ---------- */}
+      {/* ---------- PASSO 4: enviado para a fila de revisão ---------- */}
       {passo === 4 && resultado && (
         <div className="card">
           <div className="verdict good">
-            <div className="lbl">Anúncio publicado</div>
-            <div className="big">🎉 {resultado.item_id}</div>
-            {resultado.health != null && <div className="pct">Qualidade da publicação: {Math.round(resultado.health * 100)}%</div>}
+            <div className="lbl">Enviado para revisão</div>
+            <div className="big">📨 #{resultado.fila_id}</div>
+            <div className="pct">Aguardando aprovação do gestor</div>
           </div>
-          <div>
-            <div className="brow"><span className="k">Status</span><span className="v">{resultado.status || '—'}</span></div>
-            <div className="brow"><span className="k">Descrição enviada</span><span className="v">{resultado.description_ok === false ? 'falhou (edite depois)' : resultado.description_ok ? 'sim' : '—'}</span></div>
-          </div>
-          {resultado.warnings?.length > 0 && (
-            <div className="callout warn" style={{ marginTop: 12 }}>
-              <b>Avisos do Mercado Livre:</b>
-              <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
-                {resultado.warnings.map((w, i) => <li key={i} style={{ fontSize: 12.5 }}>{typeof w === 'string' ? w : (w.message || w.code)}</li>)}
-              </ul>
-            </div>
-          )}
-          {resultado.permalink && (
-            <a className="primary" href={resultado.permalink} target="_blank" rel="noreferrer"
-              style={{ display: 'block', textAlign: 'center', marginTop: 14, textDecoration: 'none' }}>
-              Abrir o anúncio no Mercado Livre ▸
-            </a>
-          )}
-          <button className="ghost" style={{ width: '100%', marginTop: 10 }}
-            onClick={() => { setAnuncio(null); setResultado(null); setValidacao(null); setResultados(null); setQ(''); setPasso(1) }}>
-            Publicar outro
+          <p className="hint" style={{ textAlign: 'center', margin: '4px 0 0' }}>
+            O anúncio foi validado no Mercado Livre e está na fila. Abra a aba <b>Revisor</b> para conferir todos os
+            dados, ajustar o preço final e publicar de verdade.
+          </p>
+          <button className="ghost" style={{ width: '100%', marginTop: 14 }}
+            onClick={() => {
+              setAnuncio(null); setResultado(null); setValidacao(null); setResultados(null); setQ('')
+              setCodErp(''); setCusto(''); setErpInfo(null); setPasso(1)
+            }}>
+            Preparar outro anúncio
           </button>
         </div>
       )}
 
       <footer>
-        A publicação usa a API oficial do Mercado Livre com a sua conta de vendedor conectada. "Validar" apenas simula
-        (não cria nada); só "Publicar" cria o anúncio de verdade na sua conta.
+        A publicação usa a API oficial do Mercado Livre com a sua conta de vendedor conectada. Aqui o anúncio é apenas
+        validado e enviado para revisão; ele só é criado de verdade quando o gestor aprova na aba Revisor.
       </footer>
     </>
   )
@@ -1913,5 +2000,323 @@ function Item({ ok, txt, soft }) {
     <div className={'pub-check-row' + (ok ? ' ok' : soft ? ' soft' : ' no')}>
       <span className="pub-check-ic">{ok ? '✓' : soft ? '○' : '✗'}</span>{txt}
     </div>
+  )
+}
+
+// ===========================================================================
+// Revisor — fila de aprovação do gestor.
+// Lista os anúncios enviados pelo wizard; ao abrir um, mostra tudo como será
+// publicado com custo/venda/média do ML bem destacados e UM campo editável (o
+// preço final). O gestor então APROVA (publica de verdade) ou REPROVA.
+// ===========================================================================
+const STATUS_INFO = {
+  pendente: { label: 'Pendente', cls: 'warn' },
+  publicado: { label: 'Publicado', cls: '' },
+  reprovado: { label: 'Reprovado', cls: 'bad' },
+}
+const REV_FILTROS = [
+  { id: 'pendente', label: 'Pendentes' },
+  { id: 'publicado', label: 'Publicados' },
+  { id: 'reprovado', label: 'Reprovados' },
+  { id: '', label: 'Todos' },
+]
+const fmtData = (iso) => { try { return new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) } catch { return '' } }
+
+function Revisor({ status, onChange }) {
+  const [filtro, setFiltro] = useState('pendente')
+  const [lista, setLista] = useState(null)
+  const [carregando, setCarregando] = useState(false)
+  const [sel, setSel] = useState(null)         // detalhe carregado
+  const [abrindo, setAbrindo] = useState(false)
+  const [precoFinal, setPrecoFinal] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [erro, setErro] = useState('')
+  const [errosVal, setErrosVal] = useState(null)   // erros de validação do ML ao aprovar
+  const [motivoOpen, setMotivoOpen] = useState(false)
+  const [motivo, setMotivo] = useState('')
+
+  async function carregarLista(f = filtro) {
+    setCarregando(true)
+    try {
+      const qs = f ? '?status=' + encodeURIComponent(f) : ''
+      const d = await fetch('/api/revisao' + qs).then((r) => r.json())
+      setLista(d.revisoes || [])
+    } catch { setLista([]) }
+    setCarregando(false)
+  }
+  useEffect(() => { carregarLista(filtro) }, [filtro])
+
+  async function abrir(id) {
+    setAbrindo(true); setErro(''); setErrosVal(null); setMotivoOpen(false); setMotivo('')
+    try {
+      const d = await fetch('/api/revisao/' + id).then((r) => r.json())
+      if (d.error) { setErro(d.detail?.message || d.error); setAbrindo(false); return }
+      setSel(d)
+      setPrecoFinal(String(d.preco ?? d.payload?.price ?? ''))
+    } catch { setErro('Não consegui abrir essa revisão.') }
+    setAbrindo(false)
+  }
+
+  function voltar() {
+    setSel(null); setErro(''); setErrosVal(null)
+    carregarLista()
+    onChange?.()
+  }
+
+  async function aprovar() {
+    const preco = Number(precoFinal)
+    if (!(preco > 0)) { setErro('Informe um preço final válido.'); return }
+    setBusy(true); setErro(''); setErrosVal(null)
+    try {
+      const r = await fetch('/api/revisao/' + sel.id + '/publicar', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ price: preco }),
+      }).then((res) => res.json())
+      if (r.error) setErro(mapErroConexao(r))
+      else if (r.ok === false) setErrosVal(r.erros || [])
+      else { await abrir(sel.id); carregarLista(); onChange?.() }   // recarrega já publicado
+    } catch { setErro('Não consegui publicar agora. Tente de novo.') }
+    setBusy(false)
+  }
+
+  async function reprovar() {
+    setBusy(true); setErro('')
+    try {
+      const r = await fetch('/api/revisao/' + sel.id + '/reprovar', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ motivo: motivo.trim() || null }),
+      }).then((res) => res.json())
+      if (r.error) setErro(r.detail?.message || r.error)
+      else voltar()
+    } catch { setErro('Não consegui reprovar agora. Tente de novo.') }
+    setBusy(false)
+  }
+
+  // ---------- LISTA ----------
+  if (!sel) {
+    return (
+      <>
+        <div className="eyebrow">Aprovação · fila de revisão</div>
+        <h1>Revisor de anúncios</h1>
+        <p className="sub">
+          Anúncios preparados no "Publicar anúncio" chegam aqui para o gestor conferir e aprovar. Nada é publicado no
+          Mercado Livre sem passar por esta tela.
+        </p>
+
+        <div className="pub-steps" style={{ marginBottom: 14 }}>
+          {REV_FILTROS.map((f) => (
+            <button key={f.id} className={'pub-step' + (filtro === f.id ? ' on' : '')}
+              style={{ cursor: 'pointer' }} onClick={() => setFiltro(f.id)}>{f.label}</button>
+          ))}
+        </div>
+
+        {erro && <div className="callout bad"><b>Erro:</b> {erro}</div>}
+
+        <div className="card">
+          {carregando ? (
+            <div className="hint">Carregando…</div>
+          ) : !lista || lista.length === 0 ? (
+            <div className="hint">Nenhum anúncio {filtro ? STATUS_INFO[filtro]?.label.toLowerCase() : ''} por aqui.</div>
+          ) : (
+            <div className="pub-catlist">
+              {lista.map((r) => {
+                const si = STATUS_INFO[r.status] || {}
+                return (
+                  <button key={r.id} className="pub-catopt" onClick={() => abrir(r.id)} disabled={abrindo}>
+                    {r.thumb
+                      ? <img src={r.thumb} alt="" className="mkt-thumb" />
+                      : <div className="mkt-thumb" style={{ display: 'grid', placeItems: 'center', color: 'var(--soft)' }}>—</div>}
+                    <div style={{ flex: 1, textAlign: 'left' }}>
+                      <div className="mkt-name" style={{ fontSize: 14 }}>{r.titulo || '(sem título)'}</div>
+                      <div className="hint">
+                        #{r.id} · {money(r.preco)}{r.custo != null ? ` · custo ${money(r.custo)}` : ''} · {fmtData(r.criado_em)}
+                      </div>
+                    </div>
+                    <span className={'pill' + (si.cls ? ' ' + si.cls : '')} style={{ pointerEvents: 'none' }}>{si.label || r.status}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </>
+    )
+  }
+
+  // ---------- DETALHE ----------
+  const p = sel.payload || {}
+  const preco = Number(precoFinal) || 0
+  const custo = sel.custo
+  const media = sel.media_ml?.valor
+  const markup = custo > 0 && preco > 0 ? (preco - custo) / custo : null
+  const vsMedia = media > 0 && preco > 0 ? (preco - media) / media : null
+  const attrsList = Object.entries(p.attributes || {}).map(([id, v]) => ({
+    nome: (p.category_attributes || []).find((a) => a.id === id)?.name || id, v,
+  })).filter((a) => String(a.v ?? '').trim())
+  const si = STATUS_INFO[sel.status] || {}
+  const isPend = sel.status === 'pendente'
+
+  return (
+    <>
+      <div className="eyebrow">Aprovação · fila de revisão</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <button className="ghost" onClick={voltar}>◀ Voltar à lista</button>
+        <span className={'pill' + (si.cls ? ' ' + si.cls : '')}>{si.label || sel.status}</span>
+        <span className="hint">#{sel.id} · enviado {fmtData(sel.criado_em)}</span>
+      </div>
+      <h1 style={{ marginTop: 10 }}>Revisar anúncio</h1>
+
+      {erro && <div className="callout bad"><b>Erro:</b> {erro}</div>}
+
+      {/* valores em destaque */}
+      <div className="tiles tri">
+        <div className="tile big">
+          <b>{custo != null ? money(custo) : '—'}</b>
+          <span>Valor de custo</span>
+        </div>
+        <div className="tile big warn">
+          <b>{money(sel.preco)}</b>
+          <span>Valor de venda (proposto)</span>
+        </div>
+        <div className="tile big good">
+          <b>{media != null ? money(media) : '—'}</b>
+          <span>
+            Média dos anúncios do ML
+            {sel.media_ml?.n > 0 ? ` · ${sel.media_ml.n} anúncio${sel.media_ml.n > 1 ? 's' : ''}` : ''}
+            {media != null ? (sel.media_ml?.fonte === 'snapshot' ? ' · no envio' : ' · agora') : ''}
+          </span>
+        </div>
+      </div>
+
+      <div className="grid">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* preço final (único editável) */}
+          <div className="card">
+            <h2><span className="n">R$</span> Preço final de publicação</h2>
+            {isPend ? (
+              <>
+                <div className="field" style={{ marginBottom: 8 }}>
+                  <input type="number" step="0.01" value={precoFinal}
+                    onChange={(e) => setPrecoFinal(e.target.value)}
+                    style={{ fontSize: 20, fontFamily: 'var(--mono)', fontWeight: 700 }} />
+                </div>
+                <div className="hint">
+                  {markup != null ? <>Margem sobre o custo: <b>{pct(markup)}</b>. </> : null}
+                  {vsMedia != null ? <>Ante a média do ML: <b className={vsMedia < 0 ? '' : ''}>{vsMedia >= 0 ? '+' : ''}{pct(vsMedia)}</b>.</> : null}
+                </div>
+              </>
+            ) : (
+              <div className="brow total"><span className="k">Publicado por</span><span className="v">{money(sel.preco)}</span></div>
+            )}
+          </div>
+
+          {/* fotos */}
+          {Array.isArray(p.pictures) && p.pictures.length > 0 && (
+            <div className="card">
+              <h2><span className="n">📷</span> Fotos ({p.pictures.length})</h2>
+              <div className="fotos-grid">
+                {p.pictures.map((f, i) => (
+                  <div className="foto" key={i}>
+                    <img src={f.url || f.source} alt="" />
+                    {i === 0 && <span className="foto-capa">capa</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* descrição */}
+          {p.description && String(p.description).trim() && (
+            <div className="card">
+              <h2><span className="n">📝</span> Descrição</h2>
+              <div style={{ whiteSpace: 'pre-wrap', fontSize: 14, lineHeight: 1.5 }}>{p.description}</div>
+            </div>
+          )}
+        </div>
+
+        {/* coluna de dados */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="card">
+            <h2><span className="n">📋</span> Como vai ser publicado</h2>
+            <div className="brow"><span className="k">Título</span><span className="v" style={{ textAlign: 'right', maxWidth: '65%' }}>{p.title || '—'}</span></div>
+            <div className="brow"><span className="k">Categoria</span><span className="v">{p.category_id || '—'}</span></div>
+            {p.category_path && <div className="brow sub"><span className="k">{p.category_path}</span><span className="v"></span></div>}
+            <div className="brow"><span className="k">Condição</span><span className="v">{(CONDICOES.find((c) => c.id === p.condition) || {}).label || p.condition || '—'}</span></div>
+            <div className="brow"><span className="k">Tipo de anúncio</span><span className="v">{(LISTING_TYPES.find((t) => t.id === p.listing_type_id) || {}).label || p.listing_type_id || '—'}</span></div>
+            <div className="brow"><span className="k">Quantidade</span><span className="v">{p.quantity ?? '—'}</span></div>
+            <div className="brow"><span className="k">Envio</span><span className="v">{(LOGISTIC_TYPES.find((t) => t.id === p.logistic_type) || {}).label || p.logistic_type || '—'}{p.free_shipping ? ' · frete grátis' : ''}</span></div>
+            <div className="brow"><span className="k">Garantia</span><span className="v">{p.warranty?.type_name || '—'}{p.warranty?.type_name && p.warranty?.type_name !== 'Sem garantia' && p.warranty?.time ? ` (${p.warranty.time} dias)` : ''}</span></div>
+            {sel.cod_erp && <div className="brow"><span className="k">Cód. ERP</span><span className="v">{sel.cod_erp}</span></div>}
+          </div>
+
+          <div className="card">
+            <h2><span className="n">🔧</span> Ficha técnica</h2>
+            {attrsList.length === 0 ? (
+              <div className="hint">Sem atributos preenchidos.</div>
+            ) : attrsList.map((a, i) => (
+              <div className="brow" key={i}><span className="k">{a.nome}</span><span className="v" style={{ textAlign: 'right', maxWidth: '60%' }}>{a.v}</span></div>
+            ))}
+          </div>
+
+          {/* resultado / motivo quando já processado */}
+          {sel.status === 'publicado' && sel.resultado && (
+            <div className="callout"><b>✓ Publicado no Mercado Livre</b>
+              <div className="brow" style={{ marginTop: 8 }}><span className="k">Item</span><span className="v">{sel.resultado.item_id || '—'}</span></div>
+              {sel.resultado.health != null && <div className="brow"><span className="k">Qualidade</span><span className="v">{Math.round(sel.resultado.health * 100)}%</span></div>}
+              {sel.resultado.permalink && (
+                <a className="primary" href={sel.resultado.permalink} target="_blank" rel="noreferrer"
+                  style={{ display: 'block', textAlign: 'center', marginTop: 10, textDecoration: 'none' }}>
+                  Abrir no Mercado Livre ▸
+                </a>
+              )}
+            </div>
+          )}
+          {sel.status === 'reprovado' && (
+            <div className="callout bad"><b>Reprovado</b>{sel.motivo ? <> — {sel.motivo}</> : ''}</div>
+          )}
+        </div>
+      </div>
+
+      {/* ações (só pendentes) */}
+      {isPend && (
+        <div className="card" style={{ marginTop: 16 }}>
+          {errosVal && errosVal.length > 0 && (
+            <div className="callout bad" style={{ marginTop: 0 }}>
+              <b>O Mercado Livre recusou a publicação:</b>
+              <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+                {errosVal.map((e, i) => <li key={i} style={{ fontSize: 12.5, marginBottom: 3 }}>{e.message_pt}</li>)}
+              </ul>
+            </div>
+          )}
+          {status && !status.seller_connected && (
+            <div className="callout warn" style={{ marginTop: 0 }}>
+              Para <b>publicar</b>, conecte uma conta de vendedor com permissão de escrita. Você ainda pode reprovar.
+              {' '}<a href="/api/auth/login">Conectar conta</a>
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button className="primary" onClick={aprovar} disabled={busy || (status && !status.seller_connected)} style={{ flex: 1 }}>
+              {busy ? 'Publicando…' : '✅ Aprovar e publicar'}
+            </button>
+            <button className="ghost" onClick={() => setMotivoOpen((v) => !v)} disabled={busy} style={{ flex: '0 0 auto' }}>
+              ✕ Reprovar
+            </button>
+          </div>
+          {motivoOpen && (
+            <div className="field" style={{ marginTop: 10, marginBottom: 0 }}>
+              <label>Motivo da reprovação (opcional)</label>
+              <div className="row-inline">
+                <input style={{ flex: 1 }} value={motivo} placeholder="ex: preço abaixo do mínimo"
+                  onChange={(e) => setMotivo(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') reprovar() }} />
+                <button className="ghost" onClick={reprovar} disabled={busy}>Confirmar reprovação</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <footer>
+        Aprovar publica o anúncio de verdade na conta de vendedor conectada, usando o preço final acima. Reprovar apenas
+        arquiva a revisão — o anúncio não é criado.
+      </footer>
+    </>
   )
 }

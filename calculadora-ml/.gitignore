@@ -5,3 +5,9 @@ dist/
 .env
 .tokens.json
 .user-token.json
+
+# Banco local da fila de revisão (SQLite)
+data/
+*.db
+*.db-wal
+*.db-shm
