@@ -1350,8 +1350,11 @@ function Calculator() {
 // a partir de um produto do catálogo, seguindo as boas práticas de qualidade.
 // ===========================================================================
 function Publicar({ status }) {
-  const [passo, setPasso] = useState(1)
-  // passo 1 — busca
+  const [passo, setPasso] = useState(0)
+  // passo 0 — busca no ERP + casamento automático com o catálogo do ML
+  const [matchML, setMatchML] = useState(null)   // resultado de /api/anuncios (produto casado + alternativas)
+  const [matchBusy, setMatchBusy] = useState(false)
+  // passo 1 — busca manual no catálogo
   const [q, setQ] = useState('')
   const [resultados, setResultados] = useState(null)
   const [buscando, setBuscando] = useState(false)
@@ -1399,6 +1402,37 @@ function Publicar({ status }) {
     )
   }
 
+  // PASSO 0 — o "motor" da Calculadora: puxa o produto do ERP pelo código e, com
+  // os dados dele (código de barras -> referência -> descrição), já procura o
+  // produto no catálogo do Mercado Livre pra casar as informações.
+  async function buscarNoErp() {
+    const cod = codErp.trim().replace(/\D/g, '')
+    if (!cod) return
+    setErpBusy(true); setErpInfo(null); setMatchML(null); setErro('')
+    try {
+      const d = await fetch('/api/produto?cod=' + encodeURIComponent(cod)).then((r) => r.json())
+      if (!d.encontrado) {
+        setErpInfo({ encontrado: false, erro: d.erro || 'nao_encontrado' })
+        setErpBusy(false)
+        return
+      }
+      setErpInfo(d)
+      if (d.custo?.ultimo != null) setCusto(String(d.custo.ultimo))
+      // com os dados do ERP, casa no catálogo do ML
+      setErpBusy(false)
+      setMatchBusy(true)
+      const qs = new URLSearchParams()
+      if (d.codigo_barras) qs.set('gtin', d.codigo_barras)
+      if (d.referencia) qs.set('ref', d.referencia)
+      if (d.descricao) qs.set('nome', d.descricao)
+      const m = await fetch('/api/anuncios?' + qs.toString()).then((r) => r.json()).catch(() => null)
+      setMatchML(m)
+    } catch {
+      setErpInfo({ encontrado: false, erro: 'falha' })
+    }
+    setErpBusy(false); setMatchBusy(false)
+  }
+
   async function buscar() {
     const termo = q.trim()
     if (!termo) return
@@ -1417,6 +1451,9 @@ function Publicar({ status }) {
     try {
       const d = await fetch('/api/publicar/prefill?catalog_id=' + encodeURIComponent(prod.id)).then((r) => r.json())
       if (d.error) throw new Error(d.error)
+      // se veio do ERP (passo 0), já assume o preço de venda cadastrado e a
+      // quantidade em estoque — o gestor ajusta depois.
+      const doErp = erpInfo && erpInfo.encontrado
       setAnuncio({
         catalog_id: d.catalog_id,
         catalog_listing: true,
@@ -1431,8 +1468,8 @@ function Publicar({ status }) {
         description: '',
         warranty_type: 'Garantia do vendedor',
         warranty_dias: '90',
-        price: '',
-        quantity: '1',
+        price: doErp && erpInfo.preco_venda != null ? String(erpInfo.preco_venda) : '',
+        quantity: doErp && erpInfo.estoque != null ? String(Math.max(1, Math.floor(erpInfo.estoque))) : '1',
         listing_type_id: 'gold_special',
         logistic_type: 'cross_docking',
         free_shipping: true,
@@ -1623,12 +1660,102 @@ function Publicar({ status }) {
       </p>
 
       <div className="pub-steps">
-        {['1 · Produto', '2 · Conteúdo', '3 · Preço e tipo', '4 · Na fila'].map((t, i) => (
-          <span key={i} className={'pub-step' + (passo === i + 1 ? ' on' : '') + (passo > i + 1 ? ' done' : '')}>{t}</span>
+        {['0 · Buscar no ERP', '1 · Produto', '2 · Conteúdo', '3 · Preço e tipo', '4 · Na fila'].map((t, i) => (
+          <span key={i} className={'pub-step' + (passo === i ? ' on' : '') + (passo > i ? ' done' : '')}>{t}</span>
         ))}
       </div>
 
       {erro && <div className="callout bad"><b>Erro:</b> {erro}</div>}
+
+      {/* ---------- PASSO 0: buscar no ERP e casar com o catálogo do ML ---------- */}
+      {passo === 0 && (
+        <div className="card">
+          <h2><span className="n">0</span> Busque o produto no seu ERP</h2>
+          <p className="hint" style={{ marginBottom: 10 }}>
+            Digite o código do produto na loja. Puxamos os dados do ERP (descrição, código de barras, referência, custo)
+            e já procuramos o produto no catálogo do Mercado Livre pra casar as informações.
+          </p>
+          <div className="row-inline">
+            <div className="field" style={{ flex: 1 }}>
+              <input
+                placeholder="código interno do produto (ex: 1234)"
+                value={codErp}
+                onChange={(e) => setCodErp(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') buscarNoErp() }}
+              />
+            </div>
+            <button className="primary" onClick={buscarNoErp} disabled={erpBusy || matchBusy || !codErp.trim()}>
+              {erpBusy ? 'Puxando do ERP…' : matchBusy ? 'Buscando no ML…' : 'Buscar'}
+            </button>
+          </div>
+
+          {/* produto do ERP */}
+          {erpInfo && (erpInfo.encontrado ? (
+            <div className="callout" style={{ marginBottom: 12 }}>
+              <b>✓ {erpInfo.descricao || 'Produto'}</b>
+              <div className="brow" style={{ marginTop: 6 }}><span className="k">Custo (último)</span><span className="v">{erpInfo.custo?.ultimo != null ? money(erpInfo.custo.ultimo) : '—'}</span></div>
+              <div className="brow"><span className="k">Preço de venda</span><span className="v">{erpInfo.preco_venda != null ? money(erpInfo.preco_venda) : '—'}</span></div>
+              <div className="brow"><span className="k">Estoque</span><span className="v">{erpInfo.estoque ?? '—'}</span></div>
+              <div className="brow"><span className="k">Cód. de barras</span><span className="v">{erpInfo.codigo_barras || '—'}</span></div>
+              {erpInfo.referencia && <div className="brow"><span className="k">Referência</span><span className="v">{erpInfo.referencia}</span></div>}
+            </div>
+          ) : (
+            <div className="callout warn" style={{ marginBottom: 12 }}>
+              {erpInfo.erro === 'erp_nao_configurado' ? 'A conexão com o ERP da loja ainda não foi configurada no servidor.'
+                : erpInfo.erro === 'erp_indisponivel' || erpInfo.erro === 'erp_timeout' ? 'O agente do ERP está offline no momento.'
+                : erpInfo.erro === 'codigo_invalido' ? 'Digite o código interno (numérico) do produto.'
+                : `Não achei esse código no ERP.`}
+              {' '}Você pode <b>buscar manualmente no catálogo</b> abaixo.
+            </div>
+          ))}
+
+          {/* casamento com o Mercado Livre */}
+          {matchBusy && <div className="hint">Procurando o produto no Mercado Livre…</div>}
+          {matchML && (matchML.matched && matchML.product ? (
+            <>
+              <div className="hint" style={{ marginBottom: 8 }}>
+                Casamos pelo <b>{VIA_TXT[matchML.via] || 'nome'}</b>. Confirme se é o produto certo:
+              </div>
+              <div className="pub-catlist">
+                <button className="pub-catopt" onClick={() => escolher({ id: matchML.product.id })} disabled={carregando}>
+                  {matchML.product.thumbnail
+                    ? <img src={matchML.product.thumbnail} alt="" className="mkt-thumb" />
+                    : <div className="mkt-thumb" style={{ display: 'grid', placeItems: 'center', color: 'var(--soft)' }}>—</div>}
+                  <div style={{ flex: 1, textAlign: 'left' }}>
+                    <div className="mkt-name" style={{ fontSize: 14 }}>{matchML.product.name}</div>
+                    <div className="hint">
+                      <code>{matchML.product.id}</code>
+                      {matchML.preco?.mediana != null ? ` · mediana ${money(matchML.preco.mediana)}` : ''}
+                      {matchML.n_vendedores != null ? ` · ${matchML.n_vendedores} vendedor(es)` : ''}
+                    </div>
+                  </div>
+                  <span className="ghost" style={{ pointerEvents: 'none' }}>{carregando ? '…' : 'Usar este ▸'}</span>
+                </button>
+                {(matchML.outras_opcoes || []).map((o) => (
+                  <button key={o.id} className="pub-catopt" onClick={() => escolher({ id: o.id })} disabled={carregando}>
+                    <div className="mkt-thumb" style={{ display: 'grid', placeItems: 'center', color: 'var(--soft)' }}>—</div>
+                    <div style={{ flex: 1, textAlign: 'left' }}>
+                      <div className="mkt-name" style={{ fontSize: 14 }}>{o.name}</div>
+                      <div className="hint"><code>{o.id}</code></div>
+                    </div>
+                    <span className="ghost" style={{ pointerEvents: 'none' }}>Usar este ▸</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="hint">
+              Não achei esse produto no catálogo do Mercado Livre pelos dados do ERP. Busque manualmente abaixo (marca + modelo).
+            </div>
+          ))}
+
+          <div style={{ marginTop: 14, textAlign: 'center' }}>
+            <button className="ghost" onClick={() => { setPasso(1); setResultados(null) }}>
+              Não está no ERP? Buscar direto no catálogo ▸
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ---------- PASSO 1: buscar produto no catálogo ---------- */}
       {passo === 1 && (
@@ -1673,6 +1800,10 @@ function Publicar({ status }) {
               ))}
             </div>
           )}
+
+          <div style={{ marginTop: 14 }}>
+            <button className="ghost" onClick={() => setPasso(0)}>◀ Voltar para a busca no ERP</button>
+          </div>
         </div>
       )}
 
@@ -1980,7 +2111,7 @@ function Publicar({ status }) {
           <button className="ghost" style={{ width: '100%', marginTop: 14 }}
             onClick={() => {
               setAnuncio(null); setResultado(null); setValidacao(null); setResultados(null); setQ('')
-              setCodErp(''); setCusto(''); setErpInfo(null); setPasso(1)
+              setCodErp(''); setCusto(''); setErpInfo(null); setMatchML(null); setPasso(0)
             }}>
             Preparar outro anúncio
           </button>
