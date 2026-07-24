@@ -58,17 +58,35 @@ Mantido para os casos (marcas populares) em que existe competição de catálogo
   categoria (e portanto a comissão). Use `--sem-categoria` para a comissão padrão do ML.
 - Não entram na conta: embalagem, imposto do seu regime e taxa de parcelamento no cartão.
 
+## Fila de revisão (aprovação do gestor)
+
+A aba **Publicar anúncio** não publica direto: ela valida o anúncio no Mercado Livre
+e o envia para uma **fila de revisão**. Na aba **Revisor**, o gestor vê tudo como
+será publicado (com custo, valor de venda e a média dos anúncios do ML bem
+destacados), ajusta só o **preço final** e então **aprova** (aí sim publica de
+verdade) ou **reprova**.
+
+A fila é gravada num banco **SQLite** local (via `node:sqlite`, embutido no Node ≥ 22.13):
+
+- Arquivo: `$DATA_DIR/revisao.db` (padrão `./data/revisao.db`).
+- **Em produção (Docker/easypanel):** monte um **volume** em `/app/data` — ou aponte
+  `DATA_DIR` para o caminho do mount. **Sem volume, a fila zera a cada redeploy**
+  (mesmo comportamento do `.user-token.json`).
+
 ## Estrutura
 
 ```
 calculadora-ml/
 ├── vite.config.js         React + mini-backend (plugin)
 ├── .env                   SUAS credenciais (local, no .gitignore)
-├── src/App.jsx            calculadora na tela
+├── src/App.jsx            calculadora, publicar e revisor
 ├── server/
 │   ├── ml.js              client_credentials + listing_prices
 │   ├── freight.js         estimativa de frete
 │   ├── catalog.js         busca de catálogo (comparação de concorrente)
+│   ├── publicar.js        montar/validar/publicar anúncio (API oficial)
+│   ├── revisao.js         fila de aprovação (criar/listar/aprovar/reprovar)
+│   ├── db.js              SQLite local (node:sqlite) em $DATA_DIR
 │   └── vite-plugin-api.js rotas /api/*
 └── scripts/
     ├── precos.js          simulador de preço mínimo (100% dos produtos)

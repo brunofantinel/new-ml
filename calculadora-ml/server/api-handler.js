@@ -4,6 +4,7 @@ import { lookupImposto } from './impostos.js'
 import { pesquisarMercado, buscarAnuncios } from './mercado.js'
 import { consultarProdutoErp, erpStatus } from './erp.js'
 import { buscarCatalogo, prefillAnuncio, feesPorTipo, validarAnuncio, publicarAnuncio } from './publicar.js'
+import { criarRevisao, listarRevisoes, obterRevisao, publicarRevisao, reprovarRevisao } from './revisao.js'
 
 // Handler compartilhado das rotas /api/* e /callback.
 // Usado tanto pelo dev-server do Vite (vite-plugin-api.js) quanto pelo
@@ -113,6 +114,23 @@ export async function handleApi(req, res) {
     if (path === '/api/publicar/publicar') {
       if (req.method !== 'POST') { res.statusCode = 405; json(res, { error: 'metodo_invalido' }); return true }
       json(res, await publicarAnuncio(await readJson(req)))
+      return true
+    }
+
+    // ===== Fila de revisão (aprovação do gestor) =====
+    if (path === '/api/revisao') {
+      if (req.method === 'POST') { json(res, await criarRevisao(await readJson(req))); return true }
+      json(res, listarRevisoes(url.searchParams.get('status') || ''))
+      return true
+    }
+    // /api/revisao/:id  (GET detalhe)  ·  /api/revisao/:id/publicar|reprovar (POST)
+    const mRev = path.match(/^\/api\/revisao\/(\d+)(?:\/(publicar|reprovar))?$/)
+    if (mRev) {
+      const id = Number(mRev[1])
+      if (!mRev[2]) { json(res, await obterRevisao(id)); return true }
+      if (req.method !== 'POST') { res.statusCode = 405; json(res, { error: 'metodo_invalido' }); return true }
+      const body = await readJson(req)
+      json(res, mRev[2] === 'publicar' ? await publicarRevisao(id, body) : reprovarRevisao(id, body))
       return true
     }
 
